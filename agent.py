@@ -37,7 +37,7 @@ When you recieve an input from the user, first you will break the input into sma
 
 # Generate the chat interface, including the tools
 llm = ChatOpenAI(
-    model="gpt-4",
+    model="gpt-4o-mini",
     temperature=0
 )
 
