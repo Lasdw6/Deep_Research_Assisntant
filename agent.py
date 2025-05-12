@@ -51,7 +51,6 @@ class AgentState(TypedDict):
 
 def assistant(state: AgentState):
     # Add system message if it's the first message
-    print("Assistant called... \n")
     if len(state["messages"]) == 1 and isinstance(state["messages"][0], HumanMessage):
         messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
     else:
