@@ -1,2 +1,6 @@
 gradio
 requests
+langgraph
+langchain
+langchain-openai
+duckduckgo-search
