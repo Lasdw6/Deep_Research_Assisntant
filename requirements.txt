@@ -5,3 +5,4 @@ langchain
 langchain-openai
 duckduckgo-search
 langchain-community
+apify-client
