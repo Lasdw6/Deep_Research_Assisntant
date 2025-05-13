@@ -538,12 +538,12 @@ def arxiv_search(query: str, max_results: int = 5) -> str:
 # System prompt to guide the model's behavior
 SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely on your internal knowledge unless web searches are rate-limited or you're specifically instructed to. You have access to the following tools:
 
-web_search: Search the google search engine for current information. Provide a specific search query.
 python_code: Execute Python code. Provide the complete Python code as a string. Use this tool to calculate math problems.
-webpage_scrape: Scrape content from a specific webpage URL. Provide a valid URL to extract information from a particular web page.
 wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return.
 tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive'.
 arxiv_search: Search ArXiv for scientific papers on a specific topic. Optionally specify max_results to control the number of papers returned.
+web_search: Search the google search engine when Tavily Search and Wikipedia Search do not return a result. Provide a specific search query.
+webpage_scrape: Scrape content from a specific webpage URL when Tavily Search and Wikipedia Search do not return a result. Provide a valid URL to extract information from a particular web page.
 
 IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observation):
 1. First reason about the problem in the "Thought" section
@@ -553,18 +553,18 @@ IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observ
 5. This cycle repeats until you have enough information to provide a final answer
 
 NEVER fake or simulate tool output yourself. You can try to use the tools multiple times if needed and try using multiple tools if needed.
-Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape.
+Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape. When Web_search does not return a result, use Tavily Search.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
 
 The only values that should be in the "action" field are:
-web_search: Search the web for current information, args: {"query": {"type": "string"}}
 python_code: Execute Python code, args: {"code": {"type": "string"}}
-webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 wikipedia_search: Search Wikipedia, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
 tavily_search: Search with Tavily, args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
 arxiv_search: Search ArXiv papers, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
+web_search: Search the web for current information, args: {"query": {"type": "string"}}
+webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
