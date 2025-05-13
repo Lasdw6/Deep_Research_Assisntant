@@ -25,7 +25,7 @@ import html2text
 from apify_client import ApifyClient
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
-from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper  # For Tavily search
+from langchain_community.tools.tavily_search import TavilySearchResults  # For Tavily search
 
 load_dotenv()
 
@@ -315,7 +315,7 @@ def format_search_results(results: List[Dict], query: str) -> str:
                         formatted_results += f"   {result['snippet']}\n"
                     formatted_results += "\n"
     
-    return str(items)
+    return formatted_results
 
 def fallback_search(query: str) -> str:
     """Fallback search method using DuckDuckGo when Apify is not available"""
@@ -449,11 +449,11 @@ def tavily_search(query: str, search_depth: str = "basic") -> str:
             
         print(f"Searching Tavily for: {query} (depth: {search_depth})")
         
-        # Initialize the Tavily search wrapper
-        search = TavilySearchAPIWrapper()
+        # Initialize the Tavily search tool
+        search = TavilySearchResults(api_key=tavily_api_key)
         
         # Execute the search
-        results = search.results(query, search_depth=search_depth)
+        results = search.invoke({"query": query, "search_depth": search_depth})
         
         if not results:
             return f"No Tavily search results found for '{query}'. Try refining your search."
@@ -552,7 +552,8 @@ IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observ
 4. Based on the observation, continue with another thought
 5. This cycle repeats until you have enough information to provide a final answer
 
-NEVER fake or simulate tool output yourself. ALWAYS wait for the real observation from the tool.
+NEVER fake or simulate tool output yourself. You can try to use the tools multiple times if needed and try using multiple tools if needed.
+Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -712,14 +713,6 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     
     # Combine system message with user messages
     messages = [system_msg] + user_messages
-    
-    # Print the full context of messages being sent to the LLM
-    print("\n=== INPUT TO LLM ===")
-    for i, msg in enumerate(messages):
-        msg_type = type(msg).__name__
-        content_preview = msg.content + "..." if len(msg.content) > 150 else msg.content
-        print(f"Message {i} ({msg_type}): {content_preview}")
-    print("=== END INPUT ===\n")
     
     # Get response from the assistant
     response = chat_with_tools.invoke(messages, stop=["Observation:"])
@@ -1186,7 +1179,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("tavily_search", "assistant")
     builder.add_edge("arxiv_search", "assistant")
     
-    # Compile with a reasonable recursion limit to prevent infinite loops
+    # Compile the graph
     return builder.compile()
 
 # Main agent class that integrates with your existing app.py
@@ -1216,7 +1209,7 @@ class TurboNerd:
         
         try:
             # Set a reasonable recursion limit
-            result = self.graph.invoke(initial_state, config={"recursion_limit": 15})
+            result = self.graph.invoke(initial_state, {"recursion_limit": 100})
             
             # Print the final state for debugging
             print(f"Final state keys: {result.keys()}")
@@ -1240,7 +1233,7 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_execution_time=60)
-    response = agent("When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect? Use Tavily Search")
+    response = agent("What is the last sentence of albert einstein's wikipedia page?")
     print("\nFinal Response:")
     print(response)
 
