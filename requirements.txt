@@ -6,3 +6,5 @@ langchain-openai
 duckduckgo-search
 langchain-community
 apify-client
+beautifulsoup4
+html2text

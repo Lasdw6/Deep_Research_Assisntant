@@ -16,8 +16,10 @@ import random
 import json
 import re
 import requests
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 import sys
+from bs4 import BeautifulSoup
+import html2text
 
 from apify_client import ApifyClient
 
@@ -165,7 +167,104 @@ def apify_google_search(query: str, limit: int = 10) -> str:
     except Exception as e:
         print(f"Error using Apify: {str(e)}")
         return fallback_search(query)
-
+def scrape_webpage(url: str) -> str:
+    """
+    Safely scrape content from a specified URL.
+    
+    Args:
+        url: The URL to scrape
+        
+    Returns:
+        Formatted webpage content as text
+    """
+    # Check if the URL is valid
+    try:
+        # Parse the URL to validate it
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            return f"Error: Invalid URL format: {url}. Please provide a valid URL with http:// or https:// prefix."
+        
+        # Block potentially dangerous URLs
+        blocked_domains = [
+            "localhost", "127.0.0.1", "0.0.0.0", 
+            "192.168.", "10.0.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
+            "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", 
+            "172.28.", "172.29.", "172.30.", "172.31."
+        ]
+        
+        if any(domain in parsed_url.netloc for domain in blocked_domains):
+            return f"Error: Access to internal/local URLs is blocked for security: {url}"
+        
+        print(f"Scraping URL: {url}")
+        
+        # Set user agent to avoid being blocked
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+        }
+        
+        # Set a reasonable timeout to avoid hanging
+        timeout = 10
+        
+        # Make the request
+        response = requests.get(url, headers=headers, timeout=timeout)
+        
+        # Check if request was successful
+        if response.status_code != 200:
+            return f"Error: Failed to fetch the webpage. Status code: {response.status_code}"
+        
+        # Use BeautifulSoup to parse the HTML
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove script and style elements that are not relevant to content
+        for script_or_style in soup(["script", "style", "iframe", "footer", "nav"]):
+            script_or_style.decompose()
+        
+        # Get the page title
+        title = soup.title.string if soup.title else "No title found"
+        
+        # Extract the main content
+        # First try to find main content areas
+        main_content = soup.find('main') or soup.find('article') or soup.find(id='content') or soup.find(class_='content')
+        
+        # If no main content area is found, use the entire body
+        if not main_content:
+            main_content = soup.body
+        
+        # Convert to plain text
+        h = html2text.HTML2Text()
+        h.ignore_links = False
+        h.ignore_images = True
+        h.ignore_tables = False
+        h.unicode_snob = True
+        
+        if main_content:
+            text_content = h.handle(str(main_content))
+        else:
+            text_content = h.handle(response.text)
+        
+        # Limit content length to avoid overwhelming the model
+        max_content_length = 99999999999
+        if len(text_content) > max_content_length:
+            text_content = text_content[:max_content_length] + "\n\n[Content truncated due to length...]"
+        
+        # Format the response
+        result = f"Title: {title}\nURL: {url}\n\n{text_content}"
+        
+        return result
+        
+    except requests.exceptions.Timeout:
+        return f"Error: Request timed out while trying to access {url}"
+    except requests.exceptions.ConnectionError:
+        return f"Error: Failed to connect to {url}. The site might be down or the URL might be incorrect."
+    except requests.exceptions.RequestException as e:
+        return f"Error requesting {url}: {str(e)}"
+    except Exception as e:
+        return f"Error scraping webpage {url}: {str(e)}"
 def format_search_results(results: List[Dict], query: str) -> str:
     """Format the search results into a readable string"""
     if not results or len(results) == 0:
@@ -269,6 +368,8 @@ SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely o
 
 web_search: Search the web for current information. Provide a specific search query.
 python_code: Execute Python code. Provide the complete Python code as a string. Use this tool to calculate math problems.
+webpage_scrape: Scrape content from a specific webpage URL. Provide a valid URL to extract information from a particular web page.
+
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -276,6 +377,7 @@ Specifically, this json should have an `action` key (with the name of the tool t
 The only values that should be in the "action" field are:
 web_search: Search the web for current information, args: {"query": {"type": "string"}}
 python_code: Execute Python code, args: {"code": {"type": "string"}}
+webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -285,6 +387,15 @@ example use:
 {
   "action": "web_search",
   "action_input": {"query": "population of New York City"}
+}
+```
+
+Or for scraping a webpage:
+
+```json
+{
+  "action": "webpage_scrape",
+  "action_input": {"url": "https://en.wikipedia.org/wiki/Artificial_intelligence"}
 }
 ```
 
@@ -323,6 +434,8 @@ IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observ
 4. Based on the observation, continue with another thought
 5. This cycle repeats until you have enough information to provide a final answer
 
+NEVER fake or simulate tool output yourself.
+
 ... (this Thought/Action/Observation cycle can repeat as needed) ...
 
 Thought: I now know the final answer
@@ -350,6 +463,11 @@ tools_config = [
         "name": "python_code", 
         "description": "Execute Python code. Provide the complete Python code as a string in the format: {\"code\": \"your python code here\"}",
         "func": run_python_code
+    },
+    {
+        "name": "webpage_scrape",
+        "description": "Scrape content from a specific webpage URL. Provide a valid URL in the format: {\"url\": \"https://example.com\"}",
+        "func": scrape_webpage
     }
 ]
 
@@ -361,6 +479,7 @@ chat_with_tools = chat
 class ActionInput(TypedDict, total=False):
     query: Optional[str]
     code: Optional[str]
+    url: Optional[str]
 
 class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
@@ -577,6 +696,51 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+def webpage_scrape_node(state: AgentState) -> Dict[str, Any]:
+    """Node that scrapes content from a specific webpage URL."""
+    print("Webpage Scrape Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Webpage scrape action_input: {action_input}")
+    
+    # Try different ways to extract the URL
+    url = ""
+    if isinstance(action_input, dict):
+        url = action_input.get("url", "")
+    elif isinstance(action_input, str):
+        url = action_input
+    
+    print(f"Scraping URL: '{url}'")
+    
+    # Safety check - don't run with empty URL
+    if not url:
+        result = "Error: No URL provided. Please provide a valid URL to scrape."
+    else:
+        # Call the webpage scraping function
+        result = scrape_webpage(url)
+    
+    print(f"Scraping result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    # Always prefix with "Observation:" for consistency in the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -589,6 +753,8 @@ def router(state: AgentState) -> str:
         return "web_search"
     elif tool == "python_code":
         return "python_code"
+    elif tool == "webpage_scrape":
+        return "webpage_scrape"
     else:
         return "end"
 
@@ -601,6 +767,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("assistant", assistant)
     builder.add_node("web_search", web_search_node)
     builder.add_node("python_code", python_code_node)
+    builder.add_node("webpage_scrape", webpage_scrape_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -627,6 +794,7 @@ def create_agent_graph() -> StateGraph:
         {
             "web_search": "web_search",
             "python_code": "python_code",
+            "webpage_scrape": "webpage_scrape",
             "end": END
         }
     )
@@ -634,6 +802,7 @@ def create_agent_graph() -> StateGraph:
     # Tools always go back to assistant
     builder.add_edge("web_search", "assistant")
     builder.add_edge("python_code", "assistant")
+    builder.add_edge("webpage_scrape", "assistant")
     
     # Compile with a reasonable recursion limit to prevent infinite loops
     return builder.compile()
@@ -692,3 +861,4 @@ if __name__ == "__main__":
     response = agent("How many studio albums were published by Mercedes Sosa between 2000 and 2009 (included)? You can use the latest 2022 version of english wikipedia.")
     print("\nFinal Response:")
     print(response)
+
