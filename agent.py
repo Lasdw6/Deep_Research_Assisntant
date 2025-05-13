@@ -20,11 +20,99 @@ from urllib.parse import quote, urlparse
 import sys
 from bs4 import BeautifulSoup
 import html2text
+import base64
+from io import BytesIO
+from PIL import Image
+from typing import Optional, Union
+import torch
+from transformers import AutoProcessor, AutoModelForVision2Seq
 
 from apify_client import ApifyClient
 
+# Initialize vision model and processor globally for reuse
+# This avoids reloading the model on each call
+try:
+    # Load model and processor once
+    vision_processor = AutoProcessor.from_pretrained("google/paligemma-3b-mix-224")
+    vision_model = AutoModelForVision2Seq.from_pretrained("google/paligemma-3b-mix-224", torch_dtype=torch.float16)
+    
+    # Move model to GPU if available
+    if torch.cuda.is_available():
+        vision_model = vision_model.to("cuda")
+    
+    VISION_MODEL_LOADED = True
+    print("Vision model loaded successfully")
+except Exception as e:
+    VISION_MODEL_LOADED = False
+    print(f"Error loading vision model: {e}")
 
-
+def describe_image(image_url: str) -> str:
+    """
+    Process an image from a URL and generate a description using a vision model.
+    
+    Args:
+        image_url: URL of the image to describe
+        
+    Returns:
+        Text description of the image
+    """
+    if not VISION_MODEL_LOADED:
+        return "Error: Vision model is not available. Could not load the model."
+    
+    try:
+        # Check if URL is valid
+        if not image_url or not isinstance(image_url, str):
+            return "Error: Invalid image URL. Please provide a valid URL."
+        
+        # Standardize prompt for the vision model
+        prompt = "Describe this image in detail."
+        
+        # Download the image
+        print(f"Downloading image from: {image_url}")
+        response = requests.get(image_url, timeout=10)
+        
+        if response.status_code != 200:
+            return f"Error: Failed to download image (Status code: {response.status_code})"
+        
+        # Open the image from bytes
+        image = Image.open(BytesIO(response.content))
+        
+        # Ensure the image is in RGB format (some images might be in RGBA or other formats)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        
+        # Process image and text inputs
+        inputs = vision_processor(text=prompt, images=image, return_tensors="pt")
+        
+        # Move inputs to the same device as the model
+        if torch.cuda.is_available():
+            inputs = {name: tensor.to("cuda") for name, tensor in inputs.items()}
+        
+        # Generate description
+        with torch.no_grad():
+            output = vision_model.generate(
+                **inputs,
+                max_new_tokens=256,
+                temperature=0.1,
+                do_sample=True
+            )
+        
+        # Decode the output
+        generated_text = vision_processor.decode(output[0], skip_special_tokens=True)
+        
+        # Trim any leading/trailing whitespace and remove the prompt if it's included in the output
+        description = generated_text.strip()
+        if description.startswith(prompt):
+            description = description[len(prompt):].strip()
+        
+        return f"Image description: {description}"
+    
+    except requests.exceptions.Timeout:
+        return f"Error: Request timed out while trying to download the image."
+    except requests.exceptions.ConnectionError:
+        return f"Error: Failed to connect to the image URL. The site might be down or the URL might be incorrect."
+    except Exception as e:
+        return f"Error processing image: {str(e)}"
 
 def run_python_code(code: str):
     """Execute Python code in a temporary file and return the output."""
@@ -369,7 +457,16 @@ SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely o
 web_search: Search the web for current information. Provide a specific search query.
 python_code: Execute Python code. Provide the complete Python code as a string. Use this tool to calculate math problems.
 webpage_scrape: Scrape content from a specific webpage URL. Provide a valid URL to extract information from a particular web page.
+describe_image: Analyze and describe an image from a URL. Provide a valid image URL to get a detailed description.
 
+IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observation):
+1. First reason about the problem in the "Thought" section
+2. Then decide what action to take in the "Action" section (using the tools)
+3. Wait for an observation from the tool
+4. Based on the observation, continue with another thought
+5. This cycle repeats until you have enough information to provide a final answer
+
+NEVER fake or simulate tool output yourself. ALWAYS wait for the real observation from the tool.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -378,6 +475,7 @@ The only values that should be in the "action" field are:
 web_search: Search the web for current information, args: {"query": {"type": "string"}}
 python_code: Execute Python code, args: {"code": {"type": "string"}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
+describe_image: Analyze an image, args: {"image_url": {"type": "string"}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -396,6 +494,15 @@ Or for scraping a webpage:
 {
   "action": "webpage_scrape",
   "action_input": {"url": "https://en.wikipedia.org/wiki/Artificial_intelligence"}
+}
+```
+
+Or for describing an image:
+
+```json
+{
+  "action": "describe_image",
+  "action_input": {"image_url": "https://example.com/image.jpg"}
 }
 ```
 
@@ -468,6 +575,11 @@ tools_config = [
         "name": "webpage_scrape",
         "description": "Scrape content from a specific webpage URL. Provide a valid URL in the format: {\"url\": \"https://example.com\"}",
         "func": scrape_webpage
+    },
+    {
+        "name": "describe_image",
+        "description": "Analyze and describe an image from a URL. Provide a valid image URL in the format: {\"image_url\": \"https://example.com/image.jpg\"}",
+        "func": describe_image
     }
 ]
 
@@ -480,6 +592,7 @@ class ActionInput(TypedDict, total=False):
     query: Optional[str]
     code: Optional[str]
     url: Optional[str]
+    image_url: Optional[str]
 
 class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
@@ -741,6 +854,51 @@ def webpage_scrape_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+def describe_image_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes image description requests."""
+    print("Image Description Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Image description action_input: {action_input}")
+    
+    # Try different ways to extract the image URL
+    image_url = ""
+    if isinstance(action_input, dict):
+        image_url = action_input.get("image_url", "")
+    elif isinstance(action_input, str):
+        image_url = action_input
+    
+    print(f"Processing image URL: '{image_url}'")
+    
+    # Safety check - don't run with empty URL
+    if not image_url:
+        result = "Error: No image URL provided. Please provide a valid image URL to describe."
+    else:
+        # Call the image description function
+        result = describe_image(image_url)
+    
+    print(f"Image description result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    # Always prefix with "Observation:" for consistency in the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -755,6 +913,8 @@ def router(state: AgentState) -> str:
         return "python_code"
     elif tool == "webpage_scrape":
         return "webpage_scrape"
+    elif tool == "describe_image":
+        return "describe_image"
     else:
         return "end"
 
@@ -768,6 +928,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("web_search", web_search_node)
     builder.add_node("python_code", python_code_node)
     builder.add_node("webpage_scrape", webpage_scrape_node)
+    builder.add_node("describe_image", describe_image_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -795,6 +956,7 @@ def create_agent_graph() -> StateGraph:
             "web_search": "web_search",
             "python_code": "python_code",
             "webpage_scrape": "webpage_scrape",
+            "describe_image": "describe_image",
             "end": END
         }
     )
@@ -803,6 +965,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("web_search", "assistant")
     builder.add_edge("python_code", "assistant")
     builder.add_edge("webpage_scrape", "assistant")
+    builder.add_edge("describe_image", "assistant")
     
     # Compile with a reasonable recursion limit to prevent infinite loops
     return builder.compile()
@@ -858,7 +1021,7 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_execution_time=60)
-    response = agent("How many studio albums were published by Mercedes Sosa between 2000 and 2009 (included)? You can use the latest 2022 version of english wikipedia.")
+    response = agent("Looking at image.png which shows a chess position, what is the best move for white? Please analyze the position and suggest the strongest continuation.")
     print("\nFinal Response:")
     print(response)
 
