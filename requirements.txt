@@ -8,7 +8,3 @@ langchain-community
 apify-client
 beautifulsoup4
 html2text
-transformers
-pillow
-torch
-accelerate

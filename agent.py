@@ -21,101 +21,13 @@ from urllib.parse import quote, urlparse
 import sys
 from bs4 import BeautifulSoup
 import html2text
-import base64
-from io import BytesIO
-from PIL import Image
-from typing import Optional, Union
-import torch
-from transformers import AutoProcessor, AutoModelForVision2Seq
 
 from apify_client import ApifyClient
+from langchain_community.document_loaders import WikipediaLoader
+from langchain_community.document_loaders import ArxivLoader
+from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper  # For Tavily search
 
 load_dotenv()
-
-# Initialize vision model and processor globally for reuse
-# This avoids reloading the model on each call
-try:
-    # Load model and processor once
-    vision_processor = AutoProcessor.from_pretrained("google/paligemma-3b-mix-224")
-    vision_model = AutoModelForVision2Seq.from_pretrained("google/paligemma-3b-mix-224", torch_dtype=torch.float16)
-    
-    # Move model to GPU if available
-    if torch.cuda.is_available():
-        vision_model = vision_model.to("cuda")
-    
-    VISION_MODEL_LOADED = True
-    print("Vision model loaded successfully")
-except Exception as e:
-    VISION_MODEL_LOADED = False
-    print(f"Error loading vision model: {e}")
-
-def describe_image(image_url: str) -> str:
-    """
-    Process an image from a URL and generate a description using a vision model.
-    
-    Args:
-        image_url: URL of the image to describe
-        
-    Returns:
-        Text description of the image
-    """
-    if not VISION_MODEL_LOADED:
-        return "Error: Vision model is not available. Could not load the model."
-    
-    try:
-        # Check if URL is valid
-        if not image_url or not isinstance(image_url, str):
-            return "Error: Invalid image URL. Please provide a valid URL."
-        
-        # Standardize prompt for the vision model
-        prompt = "Describe this image in detail."
-        
-        # Download the image
-        print(f"Downloading image from: {image_url}")
-        response = requests.get(image_url, timeout=10)
-        
-        if response.status_code != 200:
-            return f"Error: Failed to download image (Status code: {response.status_code})"
-        
-        # Open the image from bytes
-        image = Image.open(BytesIO(response.content))
-        
-        # Ensure the image is in RGB format (some images might be in RGBA or other formats)
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        
-        # Process image and text inputs
-        inputs = vision_processor(text=prompt, images=image, return_tensors="pt")
-        
-        # Move inputs to the same device as the model
-        if torch.cuda.is_available():
-            inputs = {name: tensor.to("cuda") for name, tensor in inputs.items()}
-        
-        # Generate description
-        with torch.no_grad():
-            output = vision_model.generate(
-                **inputs,
-                max_new_tokens=256,
-                temperature=0.1,
-                do_sample=True
-            )
-        
-        # Decode the output
-        generated_text = vision_processor.decode(output[0], skip_special_tokens=True)
-        
-        # Trim any leading/trailing whitespace and remove the prompt if it's included in the output
-        description = generated_text.strip()
-        if description.startswith(prompt):
-            description = description[len(prompt):].strip()
-        
-        return f"Image description: {description}"
-    
-    except requests.exceptions.Timeout:
-        return f"Error: Request timed out while trying to download the image."
-    except requests.exceptions.ConnectionError:
-        return f"Error: Failed to connect to the image URL. The site might be down or the URL might be incorrect."
-    except Exception as e:
-        return f"Error processing image: {str(e)}"
 
 def run_python_code(code: str):
     """Execute Python code in a temporary file and return the output."""
@@ -258,6 +170,7 @@ def apify_google_search(query: str, limit: int = 10) -> str:
     except Exception as e:
         print(f"Error using Apify: {str(e)}")
         return fallback_search(query)
+
 def scrape_webpage(url: str) -> str:
     """
     Safely scrape content from a specified URL.
@@ -356,6 +269,7 @@ def scrape_webpage(url: str) -> str:
         return f"Error requesting {url}: {str(e)}"
     except Exception as e:
         return f"Error scraping webpage {url}: {str(e)}"
+
 def format_search_results(results: List[Dict], query: str) -> str:
     """Format the search results into a readable string"""
     if not results or len(results) == 0:
@@ -454,13 +368,182 @@ def safe_web_search(query: str) -> str:
             
     return f"Failed to search for '{query}' after multiple attempts due to rate limiting."
 
+def wikipedia_search(query: str, num_results: int = 3) -> str:
+    """
+    Search Wikipedia for information about a specific query.
+    
+    Args:
+        query: Search query
+        num_results: Number of search results to return (default: 3)
+        
+    Returns:
+        Formatted Wikipedia search results
+    """
+    try:
+        # Validate input
+        if not query or not isinstance(query, str):
+            return "Error: Please provide a valid search query."
+        
+        # Ensure num_results is valid
+        try:
+            num_results = int(num_results)
+            if num_results <= 0:
+                num_results = 3  # Default to 3 if invalid
+        except:
+            num_results = 3  # Default to 3 if conversion fails
+            
+        print(f"Searching Wikipedia for: {query}")
+        
+        # Use WikipediaLoader from LangChain
+        loader = WikipediaLoader(query=query, load_max_docs=num_results)
+        docs = loader.load()
+        
+        if not docs:
+            return f"No Wikipedia results found for '{query}'. Try refining your search."
+        
+        # Format the results
+        formatted_results = f"Wikipedia search results for '{query}':\n\n"
+        
+        for i, doc in enumerate(docs, 1):
+            title = doc.metadata.get('title', 'Unknown Title')
+            source = doc.metadata.get('source', 'No URL')
+            content = doc.page_content
+            
+            # Truncate content if too long
+            if len(content) > 500:
+                content = content[:500] + "..."
+                
+            formatted_results += f"{i}. {title}\n"
+            formatted_results += f"   URL: {source}\n"
+            formatted_results += f"   {content}\n\n"
+        
+        return formatted_results
+        
+    except Exception as e:
+        return f"Error searching Wikipedia: {str(e)}"
+
+def tavily_search(query: str, search_depth: str = "basic") -> str:
+    """
+    Search the web using the Tavily Search API.
+    
+    Args:
+        query: Search query
+        search_depth: Depth of search ('basic' or 'comprehensive')
+        
+    Returns:
+        Formatted search results from Tavily
+    """
+    try:
+        # Check for API key
+        tavily_api_key = os.environ.get("TAVILY_API_KEY")
+        if not tavily_api_key:
+            return "Error: Tavily API key not found. Please set the TAVILY_API_KEY environment variable."
+            
+        # Validate input
+        if not query or not isinstance(query, str):
+            return "Error: Please provide a valid search query."
+            
+        # Validate search_depth
+        if search_depth not in ["basic", "comprehensive"]:
+            search_depth = "basic"  # Default to basic if invalid
+            
+        print(f"Searching Tavily for: {query} (depth: {search_depth})")
+        
+        # Initialize the Tavily search wrapper
+        search = TavilySearchAPIWrapper()
+        
+        # Execute the search
+        results = search.results(query, search_depth=search_depth)
+        
+        if not results:
+            return f"No Tavily search results found for '{query}'. Try refining your search."
+            
+        # Format the results
+        formatted_results = f"Tavily search results for '{query}':\n\n"
+        
+        for i, result in enumerate(results, 1):
+            formatted_results += f"{i}. {result.get('title', 'No title')}\n"
+            formatted_results += f"   URL: {result.get('url', 'No URL')}\n"
+            formatted_results += f"   {result.get('content', 'No content')}\n\n"
+            
+        return formatted_results
+        
+    except Exception as e:
+        return f"Error searching with Tavily: {str(e)}"
+
+def arxiv_search(query: str, max_results: int = 5) -> str:
+    """
+    Search ArXiv for scientific papers matching the query.
+    
+    Args:
+        query: Search query for ArXiv
+        max_results: Maximum number of results to return
+        
+    Returns:
+        Formatted ArXiv search results
+    """
+    try:
+        # Validate input
+        if not query or not isinstance(query, str):
+            return "Error: Please provide a valid search query."
+            
+        # Ensure max_results is valid
+        try:
+            max_results = int(max_results)
+            if max_results <= 0 or max_results > 10:
+                max_results = 5  # Default to 5 if invalid or too large
+        except:
+            max_results = 5  # Default to 5 if conversion fails
+            
+        print(f"Searching ArXiv for: {query}")
+        
+        # Use ArxivLoader from LangChain
+        loader = ArxivLoader(
+            query=query,
+            load_max_docs=max_results,
+            load_all_available_meta=True
+        )
+        
+        docs = loader.load()
+        
+        if not docs:
+            return f"No ArXiv papers found for '{query}'. Try refining your search."
+            
+        # Format the results
+        formatted_results = f"ArXiv papers for '{query}':\n\n"
+        
+        for i, doc in enumerate(docs, 1):
+            meta = doc.metadata
+            title = meta.get('Title', 'Unknown Title')
+            url = meta.get('Entry ID', 'No URL')
+            authors = meta.get('Authors', 'Unknown Authors')
+            published = meta.get('Published', 'Unknown Date')
+            
+            formatted_results += f"{i}. {title}\n"
+            formatted_results += f"   URL: {url}\n"
+            formatted_results += f"   Authors: {authors}\n"
+            formatted_results += f"   Published: {published}\n"
+            
+            # Add abstract, truncated if too long
+            abstract = doc.page_content.replace('\n', ' ')
+            if len(abstract) > 300:
+                abstract = abstract[:300] + "..."
+            formatted_results += f"   Abstract: {abstract}\n\n"
+            
+        return formatted_results
+        
+    except Exception as e:
+        return f"Error searching ArXiv: {str(e)}"
+
 # System prompt to guide the model's behavior
 SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely on your internal knowledge unless web searches are rate-limited or you're specifically instructed to. You have access to the following tools:
 
-web_search: Search the web for current information. Provide a specific search query.
+web_search: Search the google search engine for current information. Provide a specific search query.
 python_code: Execute Python code. Provide the complete Python code as a string. Use this tool to calculate math problems.
 webpage_scrape: Scrape content from a specific webpage URL. Provide a valid URL to extract information from a particular web page.
-describe_image: Analyze and describe an image from a URL. Provide a valid image URL to get a detailed description.
+wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return.
+tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive'.
+arxiv_search: Search ArXiv for scientific papers on a specific topic. Optionally specify max_results to control the number of papers returned.
 
 IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observation):
 1. First reason about the problem in the "Thought" section
@@ -478,7 +561,9 @@ The only values that should be in the "action" field are:
 web_search: Search the web for current information, args: {"query": {"type": "string"}}
 python_code: Execute Python code, args: {"code": {"type": "string"}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
-describe_image: Analyze an image, args: {"image_url": {"type": "string"}}
+wikipedia_search: Search Wikipedia, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
+tavily_search: Search with Tavily, args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
+arxiv_search: Search ArXiv papers, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -500,12 +585,12 @@ Or for scraping a webpage:
 }
 ```
 
-Or for describing an image:
+Or for searching Wikipedia:
 
 ```json
 {
-  "action": "describe_image",
-  "action_input": {"image_url": "https://example.com/image.jpg"}
+  "action": "wikipedia_search",
+  "action_input": {"query": "quantum physics", "num_results": 3}
 }
 ```
 
@@ -553,7 +638,6 @@ Thought: I now know the final answer
 Final Answer: Directly answer the question in the shortest possible way. For example, if the question is "What is the capital of France?", the answer should be "Paris" without any additional text. If the question is "What is the population of New York City?", the answer should be "8.4 million" without any additional text.
 
 Now begin! Reminder to ALWAYS use the exact characters `Final Answer:` when you provide a definitive answer."""
-#Your response will be evaluated for accuracy and completeness. After you provide an answer, an evaluator will check your work and may ask you to improve it. The evaluation process has a maximum of 3 attempts.
 
 # Generate the chat interface, including the tools
 llm = ChatOpenAI(
@@ -580,9 +664,19 @@ tools_config = [
         "func": scrape_webpage
     },
     {
-        "name": "describe_image",
-        "description": "Analyze and describe an image from a URL. Provide a valid image URL in the format: {\"image_url\": \"https://example.com/image.jpg\"}",
-        "func": describe_image
+        "name": "wikipedia_search",
+        "description": "Search Wikipedia for information about a specific topic. Provide a query in the format: {\"query\": \"your topic\", \"num_results\": 3}",
+        "func": wikipedia_search
+    },
+    {
+        "name": "tavily_search",
+        "description": "Search the web using Tavily for more comprehensive results. Provide a query in the format: {\"query\": \"your search query\", \"search_depth\": \"basic\"}",
+        "func": tavily_search
+    },
+    {
+        "name": "arxiv_search",
+        "description": "Search ArXiv for scientific papers. Provide a query in the format: {\"query\": \"your research topic\", \"max_results\": 5}",
+        "func": arxiv_search
     }
 ]
 
@@ -596,6 +690,9 @@ class ActionInput(TypedDict, total=False):
     code: Optional[str]
     url: Optional[str]
     image_url: Optional[str]
+    num_results: Optional[int]
+    search_depth: Optional[str]
+    max_results: Optional[int]
 
 class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
@@ -857,34 +954,143 @@ def webpage_scrape_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
-def describe_image_node(state: AgentState) -> Dict[str, Any]:
-    """Node that processes image description requests."""
-    print("Image Description Tool Called...\n\n")
+def wikipedia_search_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes Wikipedia search requests."""
+    print("Wikipedia Search Tool Called...\n\n")
     
     # Extract tool arguments
     action_input = state.get("action_input", {})
-    print(f"Image description action_input: {action_input}")
+    print(f"Wikipedia search action_input: {action_input}")
     
-    # Try different ways to extract the image URL
-    image_url = ""
+    # Extract query and num_results
+    query = ""
+    num_results = 3  # Default
+    
     if isinstance(action_input, dict):
-        image_url = action_input.get("image_url", "")
+        query = action_input.get("query", "")
+        if "num_results" in action_input:
+            try:
+                num_results = int(action_input["num_results"])
+            except:
+                print("Invalid num_results, using default")
     elif isinstance(action_input, str):
-        image_url = action_input
+        query = action_input
     
-    print(f"Processing image URL: '{image_url}'")
+    print(f"Searching Wikipedia for: '{query}' (max results: {num_results})")
     
-    # Safety check - don't run with empty URL
-    if not image_url:
-        result = "Error: No image URL provided. Please provide a valid image URL to describe."
+    # Safety check - don't run with empty query
+    if not query:
+        result = "Error: No search query provided. Please provide a valid query for Wikipedia search."
     else:
-        # Call the image description function
-        result = describe_image(image_url)
+        # Call the Wikipedia search function
+        result = wikipedia_search(query, num_results)
     
-    print(f"Image description result length: {len(result)}")
+    print(f"Wikipedia search result length: {len(result)}")
     
     # Format the observation to continue the ReAct cycle
-    # Always prefix with "Observation:" for consistency in the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
+def tavily_search_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes Tavily search requests."""
+    print("Tavily Search Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Tavily search action_input: {action_input}")
+    
+    # Extract query and search_depth
+    query = ""
+    search_depth = "basic"  # Default
+    
+    if isinstance(action_input, dict):
+        query = action_input.get("query", "")
+        if "search_depth" in action_input:
+            depth = action_input["search_depth"]
+            if depth in ["basic", "comprehensive"]:
+                search_depth = depth
+    elif isinstance(action_input, str):
+        query = action_input
+    
+    print(f"Searching Tavily for: '{query}' (depth: {search_depth})")
+    
+    # Safety check - don't run with empty query
+    if not query:
+        result = "Error: No search query provided. Please provide a valid query for Tavily search."
+    else:
+        # Call the Tavily search function
+        result = tavily_search(query, search_depth)
+    
+    print(f"Tavily search result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
+def arxiv_search_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes ArXiv search requests."""
+    print("ArXiv Search Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"ArXiv search action_input: {action_input}")
+    
+    # Extract query and max_results
+    query = ""
+    max_results = 5  # Default
+    
+    if isinstance(action_input, dict):
+        query = action_input.get("query", "")
+        if "max_results" in action_input:
+            try:
+                max_results = int(action_input["max_results"])
+                if max_results <= 0 or max_results > 10:
+                    max_results = 5  # Reset to default if out of range
+            except:
+                print("Invalid max_results, using default")
+    elif isinstance(action_input, str):
+        query = action_input
+    
+    print(f"Searching ArXiv for: '{query}' (max results: {max_results})")
+    
+    # Safety check - don't run with empty query
+    if not query:
+        result = "Error: No search query provided. Please provide a valid query for ArXiv search."
+    else:
+        # Call the ArXiv search function
+        result = arxiv_search(query, max_results)
+    
+    print(f"ArXiv search result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
     tool_message = AIMessage(
         content=f"Observation: {result.strip()}"
     )
@@ -916,8 +1122,12 @@ def router(state: AgentState) -> str:
         return "python_code"
     elif tool == "webpage_scrape":
         return "webpage_scrape"
-    elif tool == "describe_image":
-        return "describe_image"
+    elif tool == "wikipedia_search":
+        return "wikipedia_search"
+    elif tool == "tavily_search":
+        return "tavily_search"
+    elif tool == "arxiv_search":
+        return "arxiv_search"
     else:
         return "end"
 
@@ -931,7 +1141,9 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("web_search", web_search_node)
     builder.add_node("python_code", python_code_node)
     builder.add_node("webpage_scrape", webpage_scrape_node)
-    builder.add_node("describe_image", describe_image_node)
+    builder.add_node("wikipedia_search", wikipedia_search_node)
+    builder.add_node("tavily_search", tavily_search_node)
+    builder.add_node("arxiv_search", arxiv_search_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -959,7 +1171,9 @@ def create_agent_graph() -> StateGraph:
             "web_search": "web_search",
             "python_code": "python_code",
             "webpage_scrape": "webpage_scrape",
-            "describe_image": "describe_image",
+            "wikipedia_search": "wikipedia_search",
+            "tavily_search": "tavily_search",
+            "arxiv_search": "arxiv_search",
             "end": END
         }
     )
@@ -968,7 +1182,9 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("web_search", "assistant")
     builder.add_edge("python_code", "assistant")
     builder.add_edge("webpage_scrape", "assistant")
-    builder.add_edge("describe_image", "assistant")
+    builder.add_edge("wikipedia_search", "assistant")
+    builder.add_edge("tavily_search", "assistant")
+    builder.add_edge("arxiv_search", "assistant")
     
     # Compile with a reasonable recursion limit to prevent infinite loops
     return builder.compile()
@@ -1024,7 +1240,7 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_execution_time=60)
-    response = agent("Looking at image.png which shows a chess position, what is the best move for white? Please analyze the position and suggest the strongest continuation.")
+    response = agent("When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect? Use Tavily Search")
     print("\nFinal Response:")
     print(response)
 
