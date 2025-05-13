@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 from typing import TypedDict, Annotated, Dict, Any, Optional, Union, List
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -28,6 +29,8 @@ import torch
 from transformers import AutoProcessor, AutoModelForVision2Seq
 
 from apify_client import ApifyClient
+
+load_dotenv()
 
 # Initialize vision model and processor globally for reuse
 # This avoids reloading the model on each call
