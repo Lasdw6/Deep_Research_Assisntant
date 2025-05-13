@@ -637,6 +637,7 @@ NEVER fake or simulate tool output yourself.
 Thought: I now know the final answer
 
 Final Answer: Directly answer the question in the shortest possible way. For example, if the question is "What is the capital of France?", the answer should be "Paris" without any additional text. If the question is "What is the population of New York City?", the answer should be "8.4 million" without any additional text.
+Make sure to follow any formatting instructions given by the user.
 
 Now begin! Reminder to ALWAYS use the exact characters `Final Answer:` when you provide a definitive answer."""
 
