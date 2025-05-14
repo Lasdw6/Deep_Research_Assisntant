@@ -1,6 +1,6 @@
 ---
 title: Deep Research Agent
-emoji: 🏆
+emoji: 🤓
 colorFrom: yellow
 colorTo: blue
 sdk: gradio

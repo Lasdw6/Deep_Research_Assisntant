@@ -181,7 +181,7 @@ with gr.Blocks(title="TurboNerd Agent") as demo:
             ## Chat with TurboNerd 
             Ask any question and get an answer from the TurboNerd agent. The agent can search the web, Wikipedia, and more.
             Try asking something like:
-                - What is the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists?
+                - What is the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists?\n
                 - Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.
             """)
             
