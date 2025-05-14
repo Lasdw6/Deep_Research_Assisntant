@@ -67,7 +67,7 @@ def run_python_code(code: str):
             # Also allow basic numpy/pandas imports
             is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
             if not is_safe:
-            return f"Error: Code contains potentially unsafe import: {line}"
+                return f"Error: Code contains potentially unsafe import: {line}"
     
     try:
         # Capture stdout to get print output
@@ -132,33 +132,20 @@ def run_python_code(code: str):
         # Capture stdout
         captured_output = io.StringIO()
         
-        # Execute the code with timeout simulation (not perfect but better than nothing)
+        # Execute the entire code block at once
         with redirect_stdout(captured_output):
-            # Split code into lines and execute
+            # Try to evaluate as expression first (for simple expressions)
             lines = code.strip().split('\n')
-            last_line = None
-            
-            for i, line in enumerate(lines):
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                    
-                # Check if this is the last meaningful line
-                is_last = i == len(lines) - 1
-                
-                # Execute the line
-                if is_last and not any(keyword in line for keyword in ['print', 'for', 'while', 'if', 'def', 'class', 'try', 'with']):
-                    # If it's the last line and looks like an expression, store it
-                    try:
-                        # Try to evaluate as expression first
-                        result = eval(line, restricted_globals, local_scope)
-                        local_scope['_last_result'] = result
-                        print(f"Result: {result}")
-                    except:
-                        # If that fails, execute as statement
-                        exec(line, restricted_globals, local_scope)
-                else:
-                    exec(line, restricted_globals, local_scope)
+            if len(lines) == 1 and not any(keyword in code for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with']):
+                try:
+                    result = eval(code, restricted_globals, local_scope)
+                    print(f"Result: {result}")
+                except:
+                    # If eval fails, use exec
+                    exec(code, restricted_globals, local_scope)
+            else:
+                # For multi-line code, execute the entire block
+                exec(code, restricted_globals, local_scope)
         
         # Get the captured output
         output = captured_output.getvalue()
@@ -166,11 +153,19 @@ def run_python_code(code: str):
         if output.strip():
             return output.strip()
         else:
-            # If no output but we have a last result, show it
-            if '_last_result' in local_scope:
-                return f"Result: {local_scope['_last_result']}"
-            else:
-                return "Code executed successfully with no output."
+            # If no output, check if there's a result from the last expression
+            lines = code.strip().split('\n')
+            last_line = lines[-1].strip() if lines else ""
+            
+            # If the last line looks like an expression, try to evaluate it
+            if last_line and not any(keyword in last_line for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with', 'print']):
+                try:
+                    result = eval(last_line, restricted_globals, local_scope)
+                    return f"Result: {result}"
+                except:
+                    pass
+                    
+            return "Code executed successfully with no output."
                 
     except SyntaxError as e:
         return f"Syntax Error: {str(e)}"
@@ -1042,19 +1037,6 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
         # If action_input is a string, it might be the code directly
         code = action_input
         print(f"Using string as code: {repr(code[:100])}")
-    
-    # Additional debugging: check if we got a JSON string instead of parsed JSON
-    if not code and isinstance(action_input, str):
-        try:
-            import json
-            parsed = json.loads(action_input)
-            if isinstance(parsed, dict) and "code" in parsed:
-                code = parsed["code"]
-                print(f"Parsed JSON and extracted code: {repr(code[:100])}")
-        except json.JSONDecodeError:
-            print("Failed to parse action_input as JSON")
-    
-    print(f"Final code to execute: {repr(code[:200])}")
     
     # Additional validation: check for unmatched braces
     open_braces = code.count('{')
