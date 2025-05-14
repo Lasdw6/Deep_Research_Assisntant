@@ -5,12 +5,10 @@ import inspect
 import pandas as pd
 from agent import TurboNerd
 
-# (Keep Constants as is)
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 # --- Basic Agent Definition ---
-# ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
 class BasicAgent:
     def __init__(self):
         print("BasicAgent initialized.")
@@ -22,7 +20,36 @@ class BasicAgent:
         print(f"Agent returning answer: {answer[:50]}...")
         return answer
 
-def run_and_submit_all( profile: gr.OAuthProfile | None):
+# --- Chat Interface Functions ---
+def chat_with_agent(question: str, history: list) -> tuple:
+    """
+    Handle chat interaction with TurboNerd agent.
+    """
+    if not question.strip():
+        return history, ""
+    
+    try:
+        # Initialize agent
+        agent = TurboNerd()
+        
+        # Get response from agent
+        response = agent(question)
+        
+        # Add question and response to history
+        history.append([question, response])
+        
+        return history, ""
+    except Exception as e:
+        error_message = f"Error: {str(e)}"
+        history.append([question, error_message])
+        return history, ""
+
+def clear_chat():
+    """Clear the chat history."""
+    return [], ""
+
+# --- Evaluation Functions ---
+def run_and_submit_all(profile: gr.OAuthProfile | None):
     """
     Fetches all questions, runs the BasicAgent on them, submits all answers,
     and displays the results.
@@ -47,6 +74,7 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
     except Exception as e:
         print(f"Error instantiating agent: {e}")
         return f"Error initializing agent: {e}", None
+    
     # In the case of an app running as a hugging Face space, this link points toward your codebase ( usefull for others so please keep it public)
     agent_code = f"https://huggingface.co/spaces/{space_id}/tree/main"
     print(agent_code)
@@ -142,37 +170,81 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
         results_df = pd.DataFrame(results_log)
         return status_message, results_df
 
-
-# --- Build Gradio Interface using Blocks ---
-with gr.Blocks() as demo:
-    gr.Markdown("# Basic Agent Evaluation Runner")
-    gr.Markdown(
-        """
-        **Instructions:**
-
-        1.  Please clone this space, then modify the code to define your agent's logic, the tools, the necessary packages, etc ...
-        2.  Log in to your Hugging Face account using the button below. This uses your HF username for submission.
-        3.  Click 'Run Evaluation & Submit All Answers' to fetch questions, run your agent, submit answers, and see the score.
-
-        ---
-        **Disclaimers:**
-        Once clicking on the "submit button, it can take quite some time ( this is the time for the agent to go through all the questions).
-        This space provides a basic setup and is intentionally sub-optimal to encourage you to develop your own, more robust solution. For instance for the delay process of the submit button, a solution could be to cache the answers and submit in a seperate action or even to answer the questions in async.
-        """
-    )
-
-    gr.LoginButton()
-
-    run_button = gr.Button("Run Evaluation & Submit All Answers")
-
-    status_output = gr.Textbox(label="Run Status / Submission Result", lines=5, interactive=False)
-    # Removed max_rows=10 from DataFrame constructor
-    results_table = gr.DataFrame(label="Questions and Agent Answers", wrap=True)
-
-    run_button.click(
-        fn=run_and_submit_all,
-        outputs=[status_output, results_table]
-    )
+# --- Build Gradio Interface using Blocks with Tabs ---
+with gr.Blocks(title="TurboNerd Agent") as demo:
+    gr.Markdown("# TurboNerd Agent")
+    
+    with gr.Tabs():
+        # Tab 1: Chat Interface
+        with gr.TabItem("Chat", id="chat"):
+            gr.Markdown("""
+            ## Chat with TurboNerd
+            Ask any question and get an answer from the TurboNerd agent. The agent can:
+            - Execute Python code
+            - Search Wikipedia and the web
+            - Process Excel files
+            - Transcribe YouTube videos and audio files
+            - And much more!
+            """)
+            
+            with gr.Row():
+                with gr.Column(scale=4):
+                    chatbot = gr.Chatbot(label="Conversation", height=500)
+                    question_input = gr.Textbox(
+                        label="Ask a question",
+                        placeholder="Type your question here...",
+                        lines=2,
+                        max_lines=5
+                    )
+                    with gr.Row():
+                        submit_btn = gr.Button("Send", variant="primary")
+                        clear_btn = gr.Button("Clear Chat", variant="secondary")
+            
+            # Chat interface event handlers
+            submit_btn.click(
+                fn=chat_with_agent,
+                inputs=[question_input, chatbot],
+                outputs=[chatbot, question_input]
+            )
+            
+            question_input.submit(
+                fn=chat_with_agent,
+                inputs=[question_input, chatbot],
+                outputs=[chatbot, question_input]
+            )
+            
+            clear_btn.click(
+                fn=clear_chat,
+                outputs=[chatbot, question_input]
+            )
+        
+        # Tab 2: Evaluation Interface
+        with gr.TabItem("Evaluation", id="evaluation"):
+            gr.Markdown("""
+            ## Agent Evaluation Runner
+            
+            **Instructions:**
+            
+            1. Log in to your Hugging Face account using the button below.
+            2. Click 'Run Evaluation & Submit All Answers' to fetch questions, run your agent, submit answers, and see the score.
+            
+            ---
+            **Disclaimers:**
+            Once clicking on the "submit" button, it can take quite some time (this is the time for the agent to go through all the questions).
+            This space provides a basic setup and is intentionally sub-optimal to encourage you to develop your own, more robust solution.
+            """)
+            
+            gr.LoginButton()
+            
+            run_button = gr.Button("Run Evaluation & Submit All Answers", variant="primary")
+            
+            status_output = gr.Textbox(label="Run Status / Submission Result", lines=5, interactive=False)
+            results_table = gr.DataFrame(label="Questions and Agent Answers", wrap=True)
+            
+            run_button.click(
+                fn=run_and_submit_all,
+                outputs=[status_output, results_table]
+            )
 
 if __name__ == "__main__":
     print("\n" + "-"*30 + " App Starting " + "-"*30)
@@ -195,5 +267,5 @@ if __name__ == "__main__":
 
     print("-"*(60 + len(" App Starting ")) + "\n")
 
-    print("Launching Gradio Interface for Basic Agent Evaluation...")
+    print("Launching Gradio Interface for TurboNerd Agent...")
     demo.launch(debug=True, share=False)
