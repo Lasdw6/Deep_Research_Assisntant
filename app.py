@@ -171,18 +171,18 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
         return status_message, results_df
 
 # --- Build Gradio Interface using Blocks with Tabs ---
-with gr.Blocks(title="TurboNerd Agent") as demo:
-    gr.Markdown("# TurboNerd - The Deep Research Agent \n ## Made by Vividh Mahajan - @Lasdw on HuggingFace")
+with gr.Blocks(title="TurboNerd Agent🤓") as demo:
+    gr.Markdown("# TurboNerd 🤓- The Deep Research Agent \n ### Made by Vividh Mahajan - @Lasdw on HuggingFace")
     
     with gr.Tabs():
         # Tab 1: Chat Interface
-        with gr.TabItem("Chat", id="chat"):
+        with gr.TabItem("🤓", id="chat"):
             gr.Markdown("""
-            ## Chat with TurboNerd 
+            ## Chat with TurboNerd 🤓
             Ask any question and get an answer from the TurboNerd agent. The agent can search the web, Wikipedia, and more.
-            Try asking something like:
-                - What is the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists?\n
-                - Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.
+            Try asking something like:\n
+            - What is the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists?\n
+            - Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.
             """)
             
             with gr.Row():
