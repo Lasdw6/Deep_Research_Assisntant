@@ -703,37 +703,19 @@ supabase_operation: Perform database operations, args: {"operation_type": {"type
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
-Example use for Supabase:
+Example use for tools:
 
-Insert data:
 ```json
 {
-  "action": "supabase_operation",
-  "action_input": {"operation_type": "insert", "table": "users", "data": {"name": "John Doe", "email": "john@example.com"}}
+  "action": "tavily_search",
+  "action_input": {"query": "What is the capital of France?", "search_depth": "basic"}
 }
 ```
-
-Select data:
+or
 ```json
 {
-  "action": "supabase_operation", 
-  "action_input": {"operation_type": "select", "table": "users", "filters": {"id": 1}}
-}
-```
-
-Update data:
-```json
-{
-  "action": "supabase_operation",
-  "action_input": {"operation_type": "update", "table": "users", "data": {"name": "Jane Doe"}, "filters": {"id": 1}}
-}
-```
-
-Delete data:
-```json
-{
-  "action": "supabase_operation",
-  "action_input": {"operation_type": "delete", "table": "users", "filters": {"id": 1}}
+  "action": "python_code",
+  "action_input": {"code": "c = a + b"}
 }
 ```
 
@@ -919,7 +901,7 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     # print(f"Messages for LLM (count: {len(messages_for_llm)}):")
     # for i, msg in enumerate(messages_for_llm):
     #     print(f"  {i}: Type={type(msg).__name__}, Content='{str(msg.content)[:100].replace('\\n', ' ')}...'")
-
+    
     # Get response from the assistant
     response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
     print(f"Assistant response type: {type(response)}")
@@ -959,7 +941,28 @@ def assistant(state: AgentState) -> Dict[str, Any]:
 def extract_json_from_text(text: str) -> dict:
     """Extract JSON from text, handling markdown code blocks."""
     try:
+        import re  # Import re at the beginning of the function
+        
         print(f"Attempting to extract JSON from text: {text[:200]}...")
+        
+        # Look for "Action:" followed by a markdown code block - common LLM output pattern
+        # This handles cases where the LLM outputs something like:
+        # Action:
+        # ```python
+        # code here
+        # ```
+        action_match = re.search(r"Action:\s*```(?:python|json)?\s*(.*?)```", text, re.DOTALL)
+        if action_match:
+            action_content = action_match.group(1).strip()
+            print(f"Found action content from markdown block: {action_content[:100]}...")
+            
+            # If it looks like Python code, try to create a proper JSON structure
+            if "=" in action_content or "import" in action_content or "print" in action_content:
+                print("Detected Python code, formatting as action_input")
+                return {
+                    "action": "python_code",
+                    "action_input": {"code": action_content}
+                }
         
         # Look for markdown code blocks - the most common pattern
         if "```" in text:
@@ -980,7 +983,7 @@ def extract_json_from_text(text: str) -> dict:
                     if i < len(lines):
                         # Found the end
                         block_content = '\n'.join(lines[start_idx:i])
-                    blocks.append(block_content)
+                        blocks.append(block_content)
                 i += 1
             
             # Try to parse each block as JSON
@@ -1002,7 +1005,7 @@ def extract_json_from_text(text: str) -> dict:
         
         # Look for JSON-like patterns in the text using a more precise regex
         # Match balanced braces
-        import re
+        # No need to import re again here
         
         # Try to find JSON objects with proper brace matching
         brace_count = 0
@@ -1468,7 +1471,7 @@ class TurboNerd:
         self.graph = create_agent_graph()
         self.tools = tools_config
         self.max_iterations = max_iterations  # Maximum iterations for the graph
-
+        
         # Set Apify API token if provided
         if apify_api_token:
             os.environ["APIFY_API_TOKEN"] = apify_api_token
@@ -1513,7 +1516,11 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_iterations=25)
-    response = agent("""On June 6, 2023, an article by Carolyn Collins Petersen was published in Universe Today. This article mentions a team that produced a paper about their observations, linked at the bottom of the article. Find this paper. Under what NASA award number was the work performed by R. G. Arendt supported by?""")
+    response = agent("""I'm making a grocery list for my mom, but she's a professor of botany and she's a real stickler when it comes to categorizing things. I need to add different foods to different categories on the grocery list, but if I make a mistake, she won't buy anything inserted in the wrong category. Here's the list I have so far:
+
+milk, eggs, flour, whole bean coffee, Oreos, sweet potatoes, fresh basil, plums, green beans, rice, corn, bell pepper, whole allspice, acorns, broccoli, celery, zucchini, lettuce, peanuts
+
+I need to make headings for the fruits and vegetables. Could you please create a list of just the vegetables from my list? If you could do that, then I can figure out how to categorize the rest of the list into the appropriate categories. But remember that my mom is a real stickler, so make sure that no botanical fruits end up on the vegetable list, or she won't get them when she's at the store. Please alphabetize the list of vegetables, and place each item in a comma separated list.""")
     print("\nFinal Response:")
     print(response)
 
