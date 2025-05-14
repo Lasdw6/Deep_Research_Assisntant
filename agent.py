@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from typing import TypedDict, Annotated, Dict, Any, Optional, Union, List
+from pathlib import Path
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
@@ -21,6 +22,8 @@ from urllib.parse import quote, urlparse
 import sys
 from bs4 import BeautifulSoup
 import html2text
+import pandas as pd
+from tabulate import tabulate
 
 from apify_client import ApifyClient
 from langchain_community.document_loaders import WikipediaLoader
@@ -677,6 +680,38 @@ def supabase_operation(operation_type: str, table: str, data: dict = None, filte
     except Exception as e:
         return f"Error performing Supabase operation: {str(e)}"
 
+def excel_to_text(excel_path: str, sheet_name: Optional[str] = None) -> str:
+    """
+    Read an Excel file and return a Markdown table of the requested sheet.
+    
+    Args:
+        excel_path: Path to the Excel file (.xlsx or .xls).
+        sheet_name: Optional name or index of the sheet to read. If None, reads the first sheet.
+        
+    Returns:
+        A Markdown table representing the Excel sheet, or an error message if the file is not found or cannot be read.
+    """
+    file_path = Path(excel_path).expanduser().resolve()
+    if not file_path.is_file():
+        return f"Error: Excel file not found at {file_path}"
+
+    try:
+        sheet: Union[str, int] = (
+            int(sheet_name)
+            if sheet_name and sheet_name.isdigit()
+            else sheet_name or 0
+        )
+
+        df = pd.read_excel(file_path, sheet_name=sheet)
+
+        if hasattr(df, "to_markdown"):
+            return df.to_markdown(index=False)
+
+        return tabulate(df, headers="keys", tablefmt="github", showindex=False)
+
+    except Exception as e:
+        return f"Error reading Excel file: {e}"
+
 # System prompt to guide the model's behavior
 #web_search: Search the google search engine when Tavily Search and Wikipedia Search do not return a result. Provide a specific search query.
 #webpage_scrape: Scrape content from a specific webpage URL when Tavily Search and Wikipedia Search do not return a result. Provide a valid URL to extract information from a particular web page.
@@ -689,6 +724,7 @@ wikipedia_search: Search Wikipedia for information about a specific topic. Optio
 tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive'.
 arxiv_search: Search ArXiv for scientific papers on a specific topic. Optionally specify max_results to control the number of papers returned.
 supabase_operation: Perform database operations on Supabase (insert, select, update, delete). Provide operation_type, table name, and optional data/filters.
+excel_to_text: Read an Excel file and convert it to a Markdown table. Provide the path to the Excel file and optionally the sheet name or index.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -700,6 +736,7 @@ tavily_search: Search with Tavily, args: {"query": {"type": "string"}, "search_d
 arxiv_search: Search ArXiv papers, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
+excel_to_text: Convert Excel to Markdown table, args: {"excel_path": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -798,6 +835,11 @@ tools_config = [
         "name": "supabase_operation",
         "description": "Perform database operations on Supabase (insert, select, update, delete). Provide operation_type, table name, and optional data/filters. ",
         "func": supabase_operation
+    },
+    {
+        "name": "excel_to_text",
+        "description": "Read an Excel file and return a Markdown table of the requested sheet. Provide the file path and optionally the sheet name or index.",
+        "func": excel_to_text
     }
 ]
 
@@ -1379,6 +1421,51 @@ def supabase_operation_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes Excel to Markdown table conversions."""
+    print("Excel to Text Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Excel to text action_input: {action_input}")
+    
+    # Extract required parameters
+    excel_path = ""
+    sheet_name = None
+    
+    if isinstance(action_input, dict):
+        excel_path = action_input.get("excel_path", "")
+        sheet_name = action_input.get("sheet_name")
+    
+    print(f"Excel to text: path={excel_path}, sheet={sheet_name or 'default'}")
+    
+    # Safety check
+    if not excel_path:
+        result = "Error: Excel file path is required"
+    else:
+        # Call the Excel to text function
+        result = excel_to_text(excel_path, sheet_name)
+    
+    print(f"Excel to text result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -1401,6 +1488,8 @@ def router(state: AgentState) -> str:
         return "arxiv_search"
     elif tool == "supabase_operation":
         return "supabase_operation"
+    elif tool == "excel_to_text":
+        return "excel_to_text"
     else:
         return "end"
 
@@ -1418,6 +1507,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("tavily_search", tavily_search_node)
     builder.add_node("arxiv_search", arxiv_search_node)
     builder.add_node("supabase_operation", supabase_operation_node)
+    builder.add_node("excel_to_text", excel_to_text_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -1449,6 +1539,7 @@ def create_agent_graph() -> StateGraph:
             "tavily_search": "tavily_search",
             "arxiv_search": "arxiv_search",
             "supabase_operation": "supabase_operation",
+            "excel_to_text": "excel_to_text",
             "end": END
         }
     )
@@ -1461,6 +1552,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("tavily_search", "assistant")
     builder.add_edge("arxiv_search", "assistant")
     builder.add_edge("supabase_operation", "assistant")
+    builder.add_edge("excel_to_text", "assistant")
     
     # Compile the graph
     return builder.compile()

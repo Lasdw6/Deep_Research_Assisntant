@@ -9,3 +9,5 @@ apify-client
 beautifulsoup4
 html2text
 supabase
+pandas
+tabulate
