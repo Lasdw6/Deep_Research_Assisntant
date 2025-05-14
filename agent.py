@@ -24,11 +24,12 @@ from bs4 import BeautifulSoup
 import html2text
 import pandas as pd
 from tabulate import tabulate
+import base64
 
 from apify_client import ApifyClient
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
-from langchain_community.tools.tavily_search import TavilySearchResults  # For Tavily search
+from langchain_community.tools.tavily_search import TavilySearchResults 
 from supabase import create_client, Client
 
 load_dotenv()
@@ -680,22 +681,35 @@ def supabase_operation(operation_type: str, table: str, data: dict = None, filte
     except Exception as e:
         return f"Error performing Supabase operation: {str(e)}"
 
-def excel_to_text(excel_path: str, sheet_name: Optional[str] = None) -> str:
+def excel_to_text(excel_path: str, sheet_name: Optional[str] = None, file_content: Optional[bytes] = None) -> str:
     """
     Read an Excel file and return a Markdown table of the requested sheet.
     
     Args:
-        excel_path: Path to the Excel file (.xlsx or .xls).
+        excel_path: Path to the Excel file (.xlsx or .xls) or name for the attached file.
         sheet_name: Optional name or index of the sheet to read. If None, reads the first sheet.
+        file_content: Optional binary content of the file if provided as an attachment.
         
     Returns:
         A Markdown table representing the Excel sheet, or an error message if the file is not found or cannot be read.
     """
-    file_path = Path(excel_path).expanduser().resolve()
-    if not file_path.is_file():
-        return f"Error: Excel file not found at {file_path}"
-
     try:
+        # Handle file attachment case
+        if file_content:
+            # Create a temporary file to save the attachment
+            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
+                temp_file.write(file_content)
+                temp_path = temp_file.name
+            
+            print(f"Saved attached Excel file to temporary location: {temp_path}")
+            file_path = Path(temp_path)
+        else:
+            # Regular file path case
+            file_path = Path(excel_path).expanduser().resolve()
+            if not file_path.is_file():
+                return f"Error: Excel file not found at {file_path}"
+
+        # Process the Excel file
         sheet: Union[str, int] = (
             int(sheet_name)
             if sheet_name and sheet_name.isdigit()
@@ -704,12 +718,21 @@ def excel_to_text(excel_path: str, sheet_name: Optional[str] = None) -> str:
 
         df = pd.read_excel(file_path, sheet_name=sheet)
 
+        # Clean up temporary file if we created one
+        if file_content and os.path.exists(temp_path):
+            os.unlink(temp_path)
+            print(f"Deleted temporary Excel file: {temp_path}")
+
         if hasattr(df, "to_markdown"):
             return df.to_markdown(index=False)
 
         return tabulate(df, headers="keys", tablefmt="github", showindex=False)
 
     except Exception as e:
+        # Clean up temporary file in case of error
+        if file_content and 'temp_path' in locals() and os.path.exists(temp_path):
+            os.unlink(temp_path)
+            print(f"Deleted temporary Excel file due to error: {temp_path}")
         return f"Error reading Excel file: {e}"
 
 # System prompt to guide the model's behavior
@@ -724,7 +747,7 @@ wikipedia_search: Search Wikipedia for information about a specific topic. Optio
 tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive'.
 arxiv_search: Search ArXiv for scientific papers on a specific topic. Optionally specify max_results to control the number of papers returned.
 supabase_operation: Perform database operations on Supabase (insert, select, update, delete). Provide operation_type, table name, and optional data/filters.
-excel_to_text: Read an Excel file and convert it to a Markdown table. Provide the path to the Excel file and optionally the sheet name or index.
+excel_to_text: Read an Excel file and convert it to a Markdown table. You can provide either the path to an Excel file or use a file attachment. For attachments, provide a base64-encoded string of the file content and a filename.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -736,7 +759,8 @@ tavily_search: Search with Tavily, args: {"query": {"type": "string"}, "search_d
 arxiv_search: Search ArXiv papers, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
-excel_to_text: Convert Excel to Markdown table, args: {"excel_path": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
+excel_to_text: Convert Excel to Markdown table with file path, args: {"excel_path": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
+excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -753,6 +777,13 @@ or
 {
   "action": "python_code",
   "action_input": {"code": "c = a + b"}
+}
+```
+or
+```json
+{
+  "action": "excel_to_text",
+  "action_input": {"excel_path": "data.xlsx", "file_content": "BASE64_ENCODED_CONTENT_HERE", "sheet_name": "Sheet1"}
 }
 ```
 
@@ -838,7 +869,7 @@ tools_config = [
     },
     {
         "name": "excel_to_text",
-        "description": "Read an Excel file and return a Markdown table of the requested sheet. Provide the file path and optionally the sheet name or index.",
+        "description": "Read an Excel file and return a Markdown table. You can provide either the path to an Excel file or use a file attachment. For attachments, provide a base64-encoded string of the file content and a filename.",
         "func": excel_to_text
     }
 ]
@@ -862,6 +893,7 @@ class AgentState(TypedDict, total=False):
     current_tool: Optional[str]
     action_input: Optional[ActionInput]
     iteration_count: int  # Added to track iterations
+    attachments: Dict[str, str]  # Added to store file attachments (filename -> base64 content)
     # tool_call_id: Optional[str] # Ensure this is present if used by your graph logic for tools
 
 # Add prune_messages_for_llm function
@@ -1432,19 +1464,35 @@ def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
     # Extract required parameters
     excel_path = ""
     sheet_name = None
+    file_content = None
     
     if isinstance(action_input, dict):
         excel_path = action_input.get("excel_path", "")
         sheet_name = action_input.get("sheet_name")
+        
+        # Check if there's attached file content (base64 encoded) directly in the action_input
+        if "file_content" in action_input:
+            try:
+                file_content = base64.b64decode(action_input["file_content"])
+                print(f"Decoded attached file content, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error decoding file content: {e}")
+        # Check if we should use a file from the attachments dictionary
+        elif excel_path and "attachments" in state and excel_path in state["attachments"]:
+            try:
+                file_content = base64.b64decode(state["attachments"][excel_path])
+                print(f"Using attachment '{excel_path}' from state, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error using attachment {excel_path}: {e}")
     
-    print(f"Excel to text: path={excel_path}, sheet={sheet_name or 'default'}")
+    print(f"Excel to text: path={excel_path}, sheet={sheet_name or 'default'}, has_attachment={file_content is not None}")
     
     # Safety check
-    if not excel_path:
-        result = "Error: Excel file path is required"
+    if not excel_path and not file_content:
+        result = "Error: Either Excel file path or file content is required"
     else:
         # Call the Excel to text function
-        result = excel_to_text(excel_path, sheet_name)
+        result = excel_to_text(excel_path, sheet_name, file_content)
     
     print(f"Excel to text result length: {len(result)}")
     
@@ -1569,18 +1617,40 @@ class TurboNerd:
             os.environ["APIFY_API_TOKEN"] = apify_api_token
             print("Apify API token set successfully")
     
-    def __call__(self, question: str) -> str:
-        """Process a question and return an answer."""
-        # Initialize the state with the question
+    def __call__(self, question: str, attachments: dict = None) -> str:
+        """
+        Process a question and return an answer.
+        
+        Args:
+            question: The user's question text
+            attachments: Optional dictionary of attachments with keys as names and values as base64-encoded content
+        """
+        # Process attachments if provided
+        attachment_info = ""
+        if attachments and isinstance(attachments, dict) and len(attachments) > 0:
+            attachment_names = list(attachments.keys())
+            attachment_info = f"\n\nI've attached the following files: {', '.join(attachment_names)}. "
+            
+            # Add different instructions based on detected file types
+            excel_files = [name for name in attachment_names if name.endswith(('.xlsx', '.xls'))]
+            if excel_files:
+                attachment_info += f"Use the excel_to_text tool with the file_content parameter to process the Excel files."
+        
+        # Initialize the state with the question and attachment info
+        question_with_attachments = question + attachment_info if attachment_info else question
+        
         initial_state = {
-            "messages": [HumanMessage(content=f"Question: {question}")],
+            "messages": [HumanMessage(content=f"Question: {question_with_attachments}")],
             "current_tool": None,
             "action_input": None,
-            "iteration_count": 0  # Initialize iteration_count
+            "iteration_count": 0,  # Initialize iteration_count
+            "attachments": attachments or {}  # Store attachments in the state
         }
         
         # Run the graph
         print(f"Starting graph execution with question: {question}")
+        if attachments:
+            print(f"Included attachments: {list(attachments.keys())}")
         
         try:
             # Set a reasonable recursion limit based on max_iterations
@@ -1615,4 +1685,31 @@ milk, eggs, flour, whole bean coffee, Oreos, sweet potatoes, fresh basil, plums,
 I need to make headings for the fruits and vegetables. Could you please create a list of just the vegetables from my list? If you could do that, then I can figure out how to categorize the rest of the list into the appropriate categories. But remember that my mom is a real stickler, so make sure that no botanical fruits end up on the vegetable list, or she won't get them when she's at the store. Please alphabetize the list of vegetables, and place each item in a comma separated list.""")
     print("\nFinal Response:")
     print(response)
+
+def save_attachment_to_tempfile(file_content_b64: str, file_extension: str = '.xlsx') -> str:
+    """
+    Decode a base64 file content and save it to a temporary file.
+    
+    Args:
+        file_content_b64: Base64 encoded file content
+        file_extension: File extension to use for the temporary file
+        
+    Returns:
+        Path to the saved temporary file
+    """
+    try:
+        # Decode the base64 content
+        file_content = base64.b64decode(file_content_b64)
+        
+        # Create a temporary file with the appropriate extension
+        with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
+            temp_file.write(file_content)
+            temp_path = temp_file.name
+            
+        print(f"Saved attachment to temporary file: {temp_path}")
+        return temp_path
+    
+    except Exception as e:
+        print(f"Error saving attachment: {e}")
+        return None
 
