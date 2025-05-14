@@ -67,7 +67,7 @@ def run_python_code(code: str):
             # Also allow basic numpy/pandas imports
             is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
             if not is_safe:
-                return f"Error: Code contains potentially unsafe import: {line}"
+            return f"Error: Code contains potentially unsafe import: {line}"
     
     try:
         # Capture stdout to get print output
@@ -903,25 +903,29 @@ def assistant(state: AgentState) -> Dict[str, Any]:
 def extract_json_from_text(text: str) -> dict:
     """Extract JSON from text, handling markdown code blocks."""
     try:
-        print(f"Attempting to extract JSON from text: {text[:100]}...")
+        print(f"Attempting to extract JSON from text: {text[:200]}...")
         
         # Look for markdown code blocks - the most common pattern
         if "```" in text:
             print("Found markdown code block")
             # Find all code blocks
             blocks = []
-            in_block = False
-            start_pos = 0
-            
-            for i, line in enumerate(text.split('\n')):
-                if "```" in line and not in_block:
-                    in_block = True
-                    start_pos = i + 1  # Start on the next line
-                elif "```" in line and in_block:
-                    in_block = False
-                    # Extract the block content
-                    block_content = '\n'.join(text.split('\n')[start_pos:i])
+            lines = text.split('\n')
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if "```" in line:
+                    # Start of code block
+                    start_idx = i + 1
+                    i += 1
+                    # Find the end of the code block
+                    while i < len(lines) and "```" not in lines[i]:
+                        i += 1
+                    if i < len(lines):
+                        # Found the end
+                        block_content = '\n'.join(lines[start_idx:i])
                     blocks.append(block_content)
+                i += 1
             
             # Try to parse each block as JSON
             for block in blocks:
@@ -932,19 +936,38 @@ def extract_json_from_text(text: str) -> dict:
                     if block.startswith("json"):
                         block = block[4:].strip()
                     
-                    return json.loads(block)
-                except:
+                    # Validate JSON before parsing
+                    parsed = json.loads(block)
+                    print(f"Successfully parsed JSON: {parsed}")
+                    return parsed
+                except json.JSONDecodeError as e:
+                    print(f"JSON parse error: {e}")
                     continue
         
-        # Look for JSON-like patterns in the text
-        json_pattern = r'\{[^{}]*\}'
-        matches = re.findall(json_pattern, text, re.DOTALL)
+        # Look for JSON-like patterns in the text using a more precise regex
+        # Match balanced braces
+        import re
         
-        for match in matches:
-            try:
-                return json.loads(match)
-            except:
-                continue
+        # Try to find JSON objects with proper brace matching
+        brace_count = 0
+        start_pos = -1
+        
+        for i, char in enumerate(text):
+            if char == '{':
+                if brace_count == 0:
+                    start_pos = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start_pos >= 0:
+                    # Found a complete JSON object
+                    json_candidate = text[start_pos:i+1]
+                    try:
+                        parsed = json.loads(json_candidate)
+                        print(f"Found valid JSON: {parsed}")
+                        return parsed
+                    except json.JSONDecodeError:
+                        continue
         
         # If we're here, we couldn't find a valid JSON object
         print("Could not extract valid JSON from text")
@@ -1008,19 +1031,36 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
     # Extract tool arguments
     action_input = state.get("action_input", {})
     print(f"Python code action_input: {action_input}")
+    print(f"Action input type: {type(action_input)}")
     
     # Try different ways to extract the code
     code = ""
     if isinstance(action_input, dict):
         code = action_input.get("code", "")
+        print(f"Extracted code from dict: {repr(code[:100])}")
     elif isinstance(action_input, str):
+        # If action_input is a string, it might be the code directly
         code = action_input
+        print(f"Using string as code: {repr(code[:100])}")
     
-    print(f"Executing code: '{code[:100]}...'")
+    # Additional debugging: check if we got a JSON string instead of parsed JSON
+    if not code and isinstance(action_input, str):
+        try:
+            import json
+            parsed = json.loads(action_input)
+            if isinstance(parsed, dict) and "code" in parsed:
+                code = parsed["code"]
+                print(f"Parsed JSON and extracted code: {repr(code[:100])}")
+        except json.JSONDecodeError:
+            print("Failed to parse action_input as JSON")
     
-    # Safety check - don't run empty code
-    if not code:
-        result = "Error: No Python code provided. Please provide valid Python code to execute."
+    print(f"Final code to execute: {repr(code[:200])}")
+    
+    # Additional validation: check for unmatched braces
+    open_braces = code.count('{')
+    close_braces = code.count('}')
+    if open_braces != close_braces:
+        result = f"Error: Code contains unmatched braces. Found {open_braces} '{{' and {close_braces} '}}'. Please check your code syntax."
     else:
         # Call the code execution function
         result = run_python_code(code)
