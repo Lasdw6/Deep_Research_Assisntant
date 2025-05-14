@@ -67,7 +67,7 @@ def run_python_code(code: str):
             # Also allow basic numpy/pandas imports
             is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
             if not is_safe:
-            return f"Error: Code contains potentially unsafe import: {line}"
+                return f"Error: Code contains potentially unsafe import: {line}"
     
     try:
         # Capture stdout to get print output
