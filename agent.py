@@ -28,7 +28,8 @@ from tools import (
     supabase_operation,
     excel_to_text,
     save_attachment_to_tempfile,
-    process_youtube_video
+    process_youtube_video,
+    transcribe_audio
 )
 
 load_dotenv()
@@ -66,6 +67,7 @@ webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
 process_youtube_video: Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
+transcribe_audio: Transcribe audio files using OpenAI Whisper, args: {"audio_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "language": {"type": "string", "optional": true}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
@@ -174,6 +176,11 @@ tools_config = [
         "name": "process_youtube_video",
         "description": "Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript.",
         "func": process_youtube_video
+    },
+    {
+        "name": "transcribe_audio",
+        "description": "Transcribe audio files using OpenAI Whisper. You can provide either a file path or use a file attachment. For attachments, provide base64-encoded content. Optionally specify language for better accuracy.",
+        "func": transcribe_audio
     }
 ]
 
@@ -871,6 +878,68 @@ def process_youtube_video_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+# Add after the existing tool nodes:
+def transcribe_audio_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes audio transcription requests."""
+    print("Audio Transcription Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Audio transcription action_input: {action_input}")
+    
+    # Extract required parameters
+    audio_path = ""
+    language = None
+    file_content = None
+    
+    if isinstance(action_input, dict):
+        audio_path = action_input.get("audio_path", "")
+        language = action_input.get("language")
+        
+        # Check if there's attached file content (base64 encoded) directly in the action_input
+        if "file_content" in action_input:
+            try:
+                file_content = base64.b64decode(action_input["file_content"])
+                print(f"Decoded attached audio file content, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error decoding file content: {e}")
+        # Check if we should use a file from the attachments dictionary
+        elif audio_path and "attachments" in state and audio_path in state["attachments"]:
+            try:
+                file_content = base64.b64decode(state["attachments"][audio_path])
+                print(f"Using attachment '{audio_path}' from state, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error using attachment {audio_path}: {e}")
+    
+    print(f"Audio transcription: path={audio_path}, language={language or 'auto-detect'}, has_attachment={file_content is not None}")
+    
+    # Safety check
+    if not audio_path and not file_content:
+        result = "Error: Either audio file path or file content is required"
+    else:
+        # Call the audio transcription function
+        result = transcribe_audio(audio_path, file_content, language)
+    
+    print(f"Audio transcription result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -895,6 +964,8 @@ def router(state: AgentState) -> str:
         return "excel_to_text"
     elif tool == "process_youtube_video":
         return "process_youtube_video"
+    elif tool == "transcribe_audio":
+        return "transcribe_audio"
     else:
         return "end"
 
@@ -913,6 +984,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("supabase_operation", supabase_operation_node)
     builder.add_node("excel_to_text", excel_to_text_node)
     builder.add_node("process_youtube_video", process_youtube_video_node)
+    builder.add_node("transcribe_audio", transcribe_audio_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -945,6 +1017,7 @@ def create_agent_graph() -> StateGraph:
             "supabase_operation": "supabase_operation",
             "excel_to_text": "excel_to_text",
             "process_youtube_video": "process_youtube_video",
+            "transcribe_audio": "transcribe_audio",
             "end": END
         }
     )
@@ -958,6 +1031,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("supabase_operation", "assistant")
     builder.add_edge("excel_to_text", "assistant")
     builder.add_edge("process_youtube_video", "assistant")
+    builder.add_edge("transcribe_audio", "assistant")
     
     # Compile the graph
     return builder.compile()

@@ -14,3 +14,5 @@ tabulate
 pytube
 youtube-transcript-api
 python-dotenv
+whisper
+yt_dlp

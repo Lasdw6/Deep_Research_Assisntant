@@ -15,6 +15,7 @@ from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
 from langchain_community.tools.tavily_search import TavilySearchResults
 from supabase import create_client, Client
+import openai
 
 # Add new imports for YouTube processing
 import re
@@ -615,90 +616,134 @@ def process_youtube_video(url: str, summarize: bool = True) -> str:
         print(f"Processing YouTube video: {url}")
         
         # Extract video ID from the URL
-        video_id = None
-        if "youtube.com/watch" in url:
-            # Format: https://www.youtube.com/watch?v=VIDEO_ID
-            query_string = urlparse(url).query
-            params = {p.split('=')[0]: p.split('=')[1] for p in query_string.split('&') if '=' in p}
-            video_id = params.get('v')
-        elif "youtu.be" in url:
-            # Format: https://youtu.be/VIDEO_ID
-            video_id = url.split('/')[-1]
+        video_id = extract_youtube_video_id(url)
         
         if not video_id:
             return f"Error: Could not extract video ID from the URL: {url}"
         
-        # Get video metadata using pytube
+        # Initialize metadata with defaults
+        video_title = "Unable to retrieve title"
+        video_author = "Unable to retrieve author"
+        video_description = "Unable to retrieve description"
+        video_length = 0
+        video_views = 0
+        video_publish_date = None
+        metadata_error = None
+        
+        # Try to get video metadata using pytube (with error handling)
         try:
+            # Try with different user agents to avoid detection
+            pytube.innertube._default_clients['WEB']['context']['client']['clientVersion'] = '2.0'
+            
             youtube = pytube.YouTube(url)
-            video_title = youtube.title
-            video_author = youtube.author
-            video_description = youtube.description
-            video_length = youtube.length  # in seconds
-            video_views = youtube.views
+            video_title = youtube.title or "Title unavailable"
+            video_author = youtube.author or "Author unavailable"
+            video_description = youtube.description or "No description available"
+            video_length = youtube.length or 0
+            video_views = youtube.views or 0
             video_publish_date = youtube.publish_date
+            print("Successfully retrieved video metadata")
         except Exception as e:
-            print(f"Error getting video metadata: {e}")
-            video_title = "Unknown title"
-            video_author = "Unknown author"
-            video_description = "No description available"
-            video_length = 0
-            video_views = 0
-            video_publish_date = None
+            metadata_error = str(e)
+            print(f"Warning: Could not retrieve video metadata: {e}")
+            print("Continuing with transcript extraction...")
         
         # Format video length from seconds to minutes and seconds
-        minutes = video_length // 60
-        seconds = video_length % 60
-        length_formatted = f"{minutes}:{seconds:02d}"
+        if video_length > 0:
+            minutes = video_length // 60
+            seconds = video_length % 60
+            length_formatted = f"{minutes}:{seconds:02d}"
+        else:
+            length_formatted = "Unknown"
         
-        # Get video transcript using youtube_transcript_api
+        # Get video transcript using youtube_transcript_api (this is more reliable)
+        transcript_text = ""
+        transcript_error = None
+        
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            # Try to get transcript in multiple languages
+            transcript_list = None
+            
+            # Try English first, then any available transcript
+            try:
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            except:
+                # If English not available, get any available transcript
+                available_transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+                transcript_list = next(iter(available_transcripts)).fetch()
             
             # Format transcript into readable text
-            transcript_text = ""
-            for entry in transcript_list:
-                start_time = int(entry['start'])
-                start_minutes = start_time // 60
-                start_seconds = start_time % 60
-                text = entry['text']
-                transcript_text += f"[{start_minutes}:{start_seconds:02d}] {text}\n"
-            
+            if transcript_list:
+                for entry in transcript_list:
+                    start_time = int(float(entry.get('start', 0)))
+                    start_minutes = start_time // 60
+                    start_seconds = start_time % 60
+                    text = entry.get('text', '').strip()
+                    if text:  # Only add non-empty text
+                        transcript_text += f"[{start_minutes}:{start_seconds:02d}] {text}\n"
+                print("Successfully retrieved video transcript")
+            else:
+                transcript_text = "No transcript content retrieved."
+                
         except (TranscriptsDisabled, NoTranscriptFound) as e:
-            transcript_text = "No transcript available for this video."
+            transcript_error = f"No transcript available: {str(e)}"
+            transcript_text = transcript_error
         except Exception as e:
-            transcript_text = f"Error retrieving transcript: {str(e)}"
+            transcript_error = f"Error retrieving transcript: {str(e)}"
+            transcript_text = transcript_error
         
         # Compile all information
-        result = f"Video Title: {video_title}\n"
+        result = f"Video ID: {video_id}\n"
+        result += f"URL: {url}\n"
+        result += f"Title: {video_title}\n"
         result += f"Creator: {video_author}\n"
         result += f"Length: {length_formatted}\n"
-        result += f"Views: {video_views:,}\n"
+        
+        if video_views > 0:
+            result += f"Views: {video_views:,}\n"
         if video_publish_date:
             result += f"Published: {video_publish_date.strftime('%Y-%m-%d')}\n"
-        result += f"URL: {url}\n\n"
+        
+        # Add metadata error notice if applicable
+        if metadata_error:
+            result += f"\n⚠️  Note: Some metadata could not be retrieved due to: {metadata_error}\n"
         
         # Add description (truncated if too long)
-        if video_description:
+        if video_description and video_description != "Unable to retrieve description":
+            result += "\nDescription:\n"
             if len(video_description) > 500:
                 description_preview = video_description[:500] + "..."
             else:
                 description_preview = video_description
-            result += f"Description:\n{description_preview}\n\n"
+            result += f"{description_preview}\n"
         
         # Add transcript
-        result += "Transcript:\n"
+        result += "\nTranscript:\n"
         
-        # Check if transcript is too long (over 5000 chars) and truncate if needed
-        if len(transcript_text) > 5000:
-            result += transcript_text[:5000] + "...\n[Transcript truncated due to length]\n"
+        if transcript_text:
+            # Check if transcript is too long (over 8000 chars) and truncate if needed
+            if len(transcript_text) > 8000:
+                result += transcript_text[:8000] + "...\n[Transcript truncated due to length]\n"
+            else:
+                result += transcript_text
         else:
-            result += transcript_text + "\n"
+            result += "No transcript available.\n"
+        
+        # Add note about transcript and metadata errors
+        if transcript_error:
+            result += f"\n⚠️  Transcript error: {transcript_error}\n"
+        
+        # Provide troubleshooting tips if both metadata and transcript failed
+        if metadata_error and transcript_error:
+            result += "\n💡 Troubleshooting tips:\n"
+            result += "- The video might be private, deleted, or have restricted access\n"
+            result += "- Try updating the pytube library: pip install --upgrade pytube\n"
+            result += "- Some videos may not have transcripts available\n"
         
         return result
         
     except Exception as e:
-        return f"Error processing YouTube video: {str(e)}"
+        return f"Error processing YouTube video: {str(e)}\n\nThis might be due to:\n- YouTube API changes\n- Network connectivity issues\n- Video access restrictions\n- Outdated pytube library\n\nTry updating pytube: pip install --upgrade pytube"
 
 def extract_youtube_video_id(url: str) -> Optional[str]:
     """
@@ -723,6 +768,107 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
             return match.group(1)
     
     return None
+
+def transcribe_audio(audio_path: str, file_content: Optional[bytes] = None, language: Optional[str] = None) -> str:
+    """
+    Transcribe audio files using OpenAI Whisper.
+    
+    Args:
+        audio_path: Path to the audio file or filename for attachments
+        file_content: Optional binary content of the file if provided as an attachment
+        language: Optional language code (e.g., 'en', 'es', 'fr') to improve accuracy
+        
+    Returns:
+        Transcribed text from the audio file
+    """
+    try:
+        # Check for OpenAI API key
+        openai_api_key = os.environ.get("OPENAI_API_KEY")
+        if not openai_api_key:
+            return "Error: OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
+        
+        # Set the API key
+        openai.api_key = openai_api_key
+        
+        # Handle file attachment case
+        temp_path = None
+        if file_content:
+            # Determine file extension from audio_path or default to .mp3
+            if '.' in audio_path:
+                extension = '.' + audio_path.split('.')[-1].lower()
+            else:
+                extension = '.mp3'
+            
+            # Create a temporary file to save the attachment
+            with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
+                temp_file.write(file_content)
+                temp_path = temp_file.name
+            
+            print(f"Saved attached audio file to temporary location: {temp_path}")
+            file_path = temp_path
+        else:
+            # Regular file path case
+            file_path = Path(audio_path).expanduser().resolve()
+            if not file_path.is_file():
+                return f"Error: Audio file not found at {file_path}"
+        
+        print(f"Transcribing audio file: {file_path}")
+        
+        # Open the audio file and transcribe using Whisper
+        with open(file_path, "rb") as audio_file:
+            # Prepare the transcription request
+            transcript_params = {
+                "model": "whisper-1",
+                "file": audio_file
+            }
+            
+            # Add language parameter if specified
+            if language:
+                transcript_params["language"] = language
+            
+            # Call OpenAI Whisper API
+            response = openai.Audio.transcribe(**transcript_params)
+            
+            # Extract the transcribed text
+            transcribed_text = response.get("text", "")
+            
+            if not transcribed_text:
+                return "Error: No transcription was returned from Whisper API"
+            
+            # Clean up temporary file if we created one
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+                print(f"Deleted temporary audio file: {temp_path}")
+            
+            # Format the result
+            result = f"Audio Transcription:\n\n{transcribed_text}"
+            
+            # Add metadata if available
+            if hasattr(response, 'duration'):
+                result = f"Duration: {response.duration} seconds\n" + result
+            
+            return result
+            
+    except openai.error.InvalidRequestError as e:
+        # Clean up temporary file in case of error
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return f"Error: Invalid request to Whisper API - {str(e)}"
+    except openai.error.RateLimitError as e:
+        # Clean up temporary file in case of error
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return f"Error: Rate limit exceeded for Whisper API - {str(e)}"
+    except openai.error.APIError as e:
+        # Clean up temporary file in case of error
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return f"Error: OpenAI API error - {str(e)}"
+    except Exception as e:
+        # Clean up temporary file in case of error
+        if temp_path and 'temp_path' in locals() and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return f"Error transcribing audio: {str(e)}"
 
 # Define the tools configuration
 tools_config = [
@@ -760,5 +906,10 @@ tools_config = [
         "name": "process_youtube_video",
         "description": "Extract and process information from a YouTube video including its transcript, title, author, and other metadata. Provide a URL in the format: {\"url\": \"https://www.youtube.com/watch?v=VIDEO_ID\", \"summarize\": true}",
         "func": process_youtube_video
+    },
+    {
+        "name": "transcribe_audio",
+        "description": "Transcribe audio files (MP3, WAV, etc.) using OpenAI Whisper. You can provide either a file path or use a file attachment. For attachments, provide base64-encoded content. Optionally specify language for better accuracy.",
+        "func": transcribe_audio
     }
 ] 
