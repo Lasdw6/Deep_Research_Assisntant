@@ -757,6 +757,7 @@ Action:
 }
 ```
 Observation: [another tool result will appear here]
+
 IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observation):
 1. First reason about the problem in the "Thought" section
 2. Then decide what action to take in the "Action" section (using the tools)
@@ -764,11 +765,11 @@ IMPORTANT: You MUST strictly follow the ReAct pattern (Reasoning, Action, Observ
 4. Based on the observation, continue with another thought
 5. This cycle repeats until you have enough information to provide a final answer
 
-NEVER fake or simulate tool output yourself.
+NEVER fake or simulate tool output yourself. If you are unable to make progreess in a certain way, try a different tool or a different approach.
 
 ... (this Thought/Action/Observation cycle can repeat as needed) ...
 Thought: I now know the final answer
-Final Answer: Directly answer the question in the shortest possible way. For example, if the question is "What is the capital of France?", the answer should be "Paris" without any additional text. If the question is "What is the population of New York City?", the answer should be "8.4 million" without any additional text.
+Final Answer: YOUR FINAL ANSWER should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, don't use comma to write your number neither use units such as $ or percent sign unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities), and write the digits in plain text unless specified otherwise. If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string.
 Make sure to follow any formatting instructions given by the user.
 Now begin! Reminder to ALWAYS use the exact characters `Final Answer:` when you provide a definitive answer."""
 
@@ -836,32 +837,106 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     current_tool: Optional[str]
     action_input: Optional[ActionInput]
+    iteration_count: int  # Added to track iterations
+    # tool_call_id: Optional[str] # Ensure this is present if used by your graph logic for tools
+
+# Add prune_messages_for_llm function
+def prune_messages_for_llm(
+    full_history: List[AnyMessage], 
+    num_recent_to_keep: int = 6  # Keeps roughly 2-3 ReAct turns (Thought/Action, Observation)
+) -> List[AnyMessage]:
+    """
+    Prunes the message history for the LLM call.
+    This function expects a 'core' history (messages without the initial SystemMessage).
+    It keeps the first HumanMessage (original query) and the last `num_recent_to_keep` messages
+    from this core history, injecting a condensation note.
+    """
+    if not full_history: # full_history here is actually core_history
+        return []
+
+    first_human_message: Optional[HumanMessage] = None
+    for msg in full_history: # Iterate over the provided core_history
+        if isinstance(msg, HumanMessage):
+            first_human_message = msg
+            break
+    
+    # If history is too short or no initial human query found in core_history,
+    # return core_history as is. The calling function (assistant) will prepend SystemMessage.
+    # Threshold considers: first_human (1) + condensation_note (1) + num_recent_to_keep
+    if first_human_message is None or len(full_history) < (1 + 1 + num_recent_to_keep):
+        return full_history
+
+    # Pruning is needed for the core_history
+    recent_messages_from_core = full_history[-num_recent_to_keep:]
+    
+    pruned_core_list: List[AnyMessage] = []
+    
+    # Add the first human message
+    pruned_core_list.append(first_human_message)
+    
+    # Add condensation note
+    pruned_core_list.append(
+        AIMessage(content="[System note: To manage context length, earlier parts of the conversation have been omitted. The original query and the most recent interactions are preserved.]")
+    )
+    
+    # Add recent messages, ensuring not to duplicate the first_human_message if it's in the recent slice
+    for msg in recent_messages_from_core:
+        if msg is not first_human_message: # Check object identity
+            pruned_core_list.append(msg)
+            
+    return pruned_core_list
 
 def assistant(state: AgentState) -> Dict[str, Any]:
     """Assistant node that processes messages and decides on next action."""
     print("Assistant Called...\n\n")
     
-    # Always include the system message at the beginning of the messages list
-    # This ensures the LLM follows the correct ReAct pattern in every call
+    full_current_history = state["messages"]
+    iteration_count = state.get("iteration_count", 0)
+    iteration_count += 1 # Increment for the current call
+    print(f"Current Iteration: {iteration_count}")
+
+    # Prepare messages for the LLM
     system_msg = SystemMessage(content=SYSTEM_PROMPT)
     
-    # Get user messages from state, but leave out any existing system messages
-    user_messages = [msg for msg in state["messages"] if not isinstance(msg, SystemMessage)]
+    # Core history excludes any SystemMessages found in the accumulated history.
+    # The pruning function operates on this core history.
+    core_history = [msg for msg in full_current_history if not isinstance(msg, SystemMessage)]
+
+    llm_input_core_messages: List[AnyMessage]
+
+    # Prune if it's time (e.g., after every 5th completed iteration, so check for current iteration 6, 11, etc.)
+    # Iteration 1-5: no pruning. Iteration 6: prune.
+    if iteration_count > 5 and (iteration_count - 1) % 5 == 0:
+        print(f"Pruning message history for LLM call at iteration {iteration_count}.")
+        llm_input_core_messages = prune_messages_for_llm(core_history, num_recent_to_keep=6)
+    else:
+        llm_input_core_messages = core_history
     
-    # Combine system message with user messages
-    messages = [system_msg] + user_messages
+    # Combine system message with the (potentially pruned) core messages
+    messages_for_llm = [system_msg] + llm_input_core_messages
     
+    # Log the messages being sent to LLM for debugging
+    # print(f"Messages for LLM (count: {len(messages_for_llm)}):")
+    # for i, msg in enumerate(messages_for_llm):
+    #     print(f"  {i}: Type={type(msg).__name__}, Content='{str(msg.content)[:100].replace('\\n', ' ')}...'")
+
     # Get response from the assistant
-    response = chat_with_tools.invoke(messages, stop=["Observation:"])
+    response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
     print(f"Assistant response type: {type(response)}")
-    print(f"Response content: {response.content}...")
+    # print(f"Response content (first 300 chars): {response.content[:300].replace('\n', ' ')}...")
+    content_preview = response.content[:300].replace('\n', ' ')
+    print(f"Response content (first 300 chars): {content_preview}...")
     
     # Extract the action JSON from the response text
     action_json = extract_json_from_text(response.content)
     print(f"Extracted action JSON: {action_json}")
     
-    # Create a copy of the assistant's response to add to the message history
-    assistant_message = AIMessage(content=response.content)
+    assistant_response_message = AIMessage(content=response.content)
+    
+    state_update: Dict[str, Any] = {
+        "messages": [assistant_response_message], 
+        "iteration_count": iteration_count
+    }
     
     if action_json and "action" in action_json and "action_input" in action_json:
         tool_name = action_json["action"]
@@ -869,31 +944,17 @@ def assistant(state: AgentState) -> Dict[str, Any]:
         print(f"Extracted tool: {tool_name}")
         print(f"Tool input: {tool_input}")
         
-        # Create a tool call ID for the ToolMessage
         tool_call_id = f"call_{random.randint(1000000, 9999999)}"
         
-        # Create state update with the assistant's response included
-        state_update = {
-            "messages": state["messages"] + [assistant_message],  # Add full assistant response to history
-            "current_tool": tool_name,
-            "tool_call_id": tool_call_id
-        }
-        
-        # Add action_input to state
-        if isinstance(tool_input, dict):
-            state_update["action_input"] = tool_input
-        
-        return state_update
+        state_update["current_tool"] = tool_name
+        state_update["action_input"] = tool_input
+        # state_update["tool_call_id"] = tool_call_id # If needed by your graph
+    else:
+        print("No tool action found or 'Final Answer' detected in response.")
+        state_update["current_tool"] = None
+        state_update["action_input"] = None
     
-    # No tool calls or end of chain indicated by "Final Answer"
-    if "Final Answer:" in response.content:
-        print("Final answer detected")
-    
-    return {
-        "messages": state["messages"] + [assistant_message],  # Add full assistant response to history
-        "current_tool": None,
-        "action_input": None
-    }
+    return state_update
 
 def extract_json_from_text(text: str) -> dict:
     """Extract JSON from text, handling markdown code blocks."""
@@ -1403,11 +1464,11 @@ def create_agent_graph() -> StateGraph:
 
 # Main agent class that integrates with your existing app.py
 class TurboNerd:
-    def __init__(self, max_execution_time=60, apify_api_token=None):
+    def __init__(self, max_iterations=25, apify_api_token=None):
         self.graph = create_agent_graph()
         self.tools = tools_config
-        self.max_execution_time = max_execution_time  # Maximum execution time in seconds
-        
+        self.max_iterations = max_iterations  # Maximum iterations for the graph
+
         # Set Apify API token if provided
         if apify_api_token:
             os.environ["APIFY_API_TOKEN"] = apify_api_token
@@ -1419,16 +1480,16 @@ class TurboNerd:
         initial_state = {
             "messages": [HumanMessage(content=f"Question: {question}")],
             "current_tool": None,
-            "action_input": None
+            "action_input": None,
+            "iteration_count": 0  # Initialize iteration_count
         }
         
-        # Run the graph with timeout
+        # Run the graph
         print(f"Starting graph execution with question: {question}")
-        start_time = time.time()
         
         try:
-            # Set a reasonable recursion limit
-            result = self.graph.invoke(initial_state, {"recursion_limit": 100})
+            # Set a reasonable recursion limit based on max_iterations
+            result = self.graph.invoke(initial_state, {"recursion_limit": self.max_iterations})
             
             # Print the final state for debugging
             print(f"Final state keys: {result.keys()}")
@@ -1439,7 +1500,7 @@ class TurboNerd:
             print("Final message: ", final_message)
             # Extract just the final answer part
             if "Final Answer:" in final_message:
-                final_answer = final_message.split("Final Answer:")[1].strip()
+                final_answer = final_message.split("Final Answer:", 1)[1].strip()
                 return final_answer
             
             return final_message
@@ -1451,18 +1512,8 @@ class TurboNerd:
 
 # Example usage:
 if __name__ == "__main__":
-    agent = TurboNerd(max_execution_time=60)
-    response = agent("""Given this table defining * on the set S = {a, b, c, d, e}
-
-|*|a|b|c|d|e|
-|---|---|---|---|---|---|
-|a|a|b|c|b|d|
-|b|b|c|a|e|c|
-|c|c|a|b|b|a|
-|d|b|e|b|e|d|
-|e|d|b|a|d|c|
-
-provide the subset of S involved in any possible counter-examples that prove * is not commutative. Provide your answer as a comma separated list of the elements in the set in alphabetical order.""")
+    agent = TurboNerd(max_iterations=25)
+    response = agent("""On June 6, 2023, an article by Carolyn Collins Petersen was published in Universe Today. This article mentions a team that produced a paper about their observations, linked at the bottom of the article. Find this paper. Under what NASA award number was the work performed by R. G. Arendt supported by?""")
     print("\nFinal Response:")
     print(response)
 
