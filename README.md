@@ -1,7 +1,7 @@
 ---
-title: Template Final Assignment
+title: Deep Research Agent
 emoji: 🏆
-colorFrom: indigo
+colorFrom: yellow
 colorTo: blue
 sdk: gradio
 sdk_version: 5.29.0

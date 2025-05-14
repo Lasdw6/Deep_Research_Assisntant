@@ -31,21 +31,26 @@ from supabase import create_client, Client
 load_dotenv()
 
 def run_python_code(code: str):
-    """Execute Python code in a temporary file and return the output."""
+    """Execute Python code safely using exec() instead of subprocess."""
     # Check for potentially dangerous operations
     dangerous_operations = [
         "os.system", "os.popen", "os.unlink", "os.remove",
         "subprocess.run", "subprocess.call", "subprocess.Popen",
         "shutil.rmtree", "shutil.move", "shutil.copy",
         "open(", "file(", "eval(", "exec(", 
-        "__import__"
+        "__import__", "input(", "raw_input(",
+        "__builtins__", "globals(", "locals(",
+        "compile(", "execfile(", "reload("
     ]
     
     # Safe imports that should be allowed
     safe_imports = {
         "import datetime", "import math", "import random", 
         "import statistics", "import collections", "import itertools",
-        "import re", "import json", "import csv"
+        "import re", "import json", "import csv", "import numpy",
+        "import pandas", "from math import", "from datetime import",
+        "from statistics import", "from collections import",
+        "from itertools import"
     }
     
     # Check for dangerous operations
@@ -57,62 +62,122 @@ def run_python_code(code: str):
     for line in code.splitlines():
         line = line.strip()
         if line.startswith("import ") or line.startswith("from "):
-            # Skip if it's in our safe list
-            if any(line.startswith(safe_import) for safe_import in safe_imports):
-                continue
+            # Check if it's in our safe list
+            is_safe = any(line.startswith(safe_import) for safe_import in safe_imports)
+            # Also allow basic numpy/pandas imports
+            is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
+            if not is_safe:
             return f"Error: Code contains potentially unsafe import: {line}"
     
-    # Add print statements to capture the result
-    # Find the last expression to capture its value
-    lines = code.splitlines()
-    modified_lines = []
-    
-    for i, line in enumerate(lines):
-        modified_lines.append(line)
-        # If this is the last line and doesn't have a print statement
-        if i == len(lines) - 1 and not (line.strip().startswith("print(") or line.strip() == ""):
-            # Add a print statement for the last expression
-            if not line.strip().endswith(":"):  # Not a control structure
-                modified_lines.append(f"print('Result:', {line.strip()})")
-    
-    modified_code = "\n".join(modified_lines)
-    
     try:
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(suffix='.py', delete=False) as temp:
-            temp_path = temp.name
-            # Write the code to the file
-            temp.write(modified_code.encode('utf-8'))
+        # Capture stdout to get print output
+        import io
+        import sys
+        from contextlib import redirect_stdout
         
-        # Run the Python file with restricted permissions
-        result = subprocess.run(
-            ['python', temp_path], 
-            capture_output=True, 
-            text=True, 
-            timeout=10  # Set a timeout to prevent infinite loops
-        )
+        # Create a restricted globals environment
+        restricted_globals = {
+            '__builtins__': {
+                'abs': abs, 'all': all, 'any': any, 'bin': bin, 'bool': bool,
+                'chr': chr, 'dict': dict, 'dir': dir, 'divmod': divmod,
+                'enumerate': enumerate, 'filter': filter, 'float': float,
+                'format': format, 'hex': hex, 'int': int, 'len': len,
+                'list': list, 'map': map, 'max': max, 'min': min, 'oct': oct,
+                'ord': ord, 'pow': pow, 'print': print, 'range': range,
+                'reversed': reversed, 'round': round, 'set': set, 'slice': slice,
+                'sorted': sorted, 'str': str, 'sum': sum, 'tuple': tuple,
+                'type': type, 'zip': zip,
+            }
+        }
         
-        # Clean up the temporary file
-        os.unlink(temp_path)
+        # Allow safe modules
+        import math
+        import datetime
+        import random
+        import statistics
+        import collections
+        import itertools
+        import re
+        import json
+        import csv
         
-        # Return the output or error
-        if result.returncode == 0:
-            output = result.stdout.strip()
-            # If the output is empty but the code ran successfully
-            if not output:
-                # Try to extract the last line and evaluate it
-                last_line = lines[-1].strip()
-                if not last_line.startswith("print") and not last_line.endswith(":"):
-                    return f"Code executed successfully. The result of the last expression '{last_line}' should be its value."
+        restricted_globals['math'] = math
+        restricted_globals['datetime'] = datetime
+        restricted_globals['random'] = random
+        restricted_globals['statistics'] = statistics
+        restricted_globals['collections'] = collections
+        restricted_globals['itertools'] = itertools
+        restricted_globals['re'] = re
+        restricted_globals['json'] = json
+        restricted_globals['csv'] = csv
+        
+        # Try to import numpy and pandas if available
+        try:
+            import numpy as np
+            restricted_globals['numpy'] = np
+            restricted_globals['np'] = np
+        except ImportError:
+            pass
+            
+        try:
+            import pandas as pd
+            restricted_globals['pandas'] = pd
+            restricted_globals['pd'] = pd
+        except ImportError:
+            pass
+        
+        # Create local scope
+        local_scope = {}
+        
+        # Capture stdout
+        captured_output = io.StringIO()
+        
+        # Execute the code with timeout simulation (not perfect but better than nothing)
+        with redirect_stdout(captured_output):
+            # Split code into lines and execute
+            lines = code.strip().split('\n')
+            last_line = None
+            
+            for i, line in enumerate(lines):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # Check if this is the last meaningful line
+                is_last = i == len(lines) - 1
+                
+                # Execute the line
+                if is_last and not any(keyword in line for keyword in ['print', 'for', 'while', 'if', 'def', 'class', 'try', 'with']):
+                    # If it's the last line and looks like an expression, store it
+                    try:
+                        # Try to evaluate as expression first
+                        result = eval(line, restricted_globals, local_scope)
+                        local_scope['_last_result'] = result
+                        print(f"Result: {result}")
+                    except:
+                        # If that fails, execute as statement
+                        exec(line, restricted_globals, local_scope)
                 else:
-                    return "Code executed successfully with no output."
-            return output
+                    exec(line, restricted_globals, local_scope)
+        
+        # Get the captured output
+        output = captured_output.getvalue()
+        
+        if output.strip():
+            return output.strip()
         else:
-            return f"Error executing code: {result.stderr}"
-    except subprocess.TimeoutExpired:
-        # Clean up if timeout
-        os.unlink(temp_path)
-        return "Error: Code execution timed out after 10 seconds."
+            # If no output but we have a last result, show it
+            if '_last_result' in local_scope:
+                return f"Result: {local_scope['_last_result']}"
+            else:
+                return "Code executed successfully with no output."
+                
+    except SyntaxError as e:
+        return f"Syntax Error: {str(e)}"
+    except NameError as e:
+        return f"Name Error: {str(e)}"
+    except ZeroDivisionError as e:
+        return f"Zero Division Error: {str(e)}"
     except Exception as e:
         return f"Error executing code: {str(e)}"
 
@@ -1365,7 +1430,17 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_execution_time=60)
-    response = agent("When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect?")
+    response = agent("""Given this table defining * on the set S = {a, b, c, d, e}
+
+|*|a|b|c|d|e|
+|---|---|---|---|---|---|
+|a|a|b|c|b|d|
+|b|b|c|a|e|c|
+|c|c|a|b|b|a|
+|d|b|e|b|e|d|
+|e|d|b|a|d|c|
+
+provide the subset of S involved in any possible counter-examples that prove * is not commutative. Provide your answer as a comma separated list of the elements in the set in alphabetical order.""")
     print("\nFinal Response:")
     print(response)
 
