@@ -8,3 +8,4 @@ langchain-community
 apify-client
 beautifulsoup4
 html2text
+supabase
