@@ -1,3 +1,14 @@
 .env
 .env.*
 image.png
+
+GAIA
+GAIA/*
+
+pycache/*
+__pycache__/*
+
+*.pyc
+*.pyo
+*.pyd
+

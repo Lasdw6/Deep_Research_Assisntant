@@ -4,29 +4,19 @@ from typing import TypedDict, Annotated, Dict, Any, Optional, Union, List
 from pathlib import Path
 from langgraph.graph.message import add_messages
 from langchain_core.messages import AnyMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
-from langgraph.prebuilt import ToolNode
-from langchain.tools import Tool
 from langgraph.graph import START, END, StateGraph
-from langgraph.prebuilt import tools_condition
 from langchain_openai import ChatOpenAI
-from langchain_community.tools import DuckDuckGoSearchRun
-import getpass
-import subprocess
 import tempfile
-import time
 import random
 import json
-import re
 import requests
 from urllib.parse import quote, urlparse
-import sys
 from bs4 import BeautifulSoup
 import html2text
 import pandas as pd
 from tabulate import tabulate
 import base64
 
-from apify_client import ApifyClient
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
 from langchain_community.tools.tavily_search import TavilySearchResults 
@@ -764,6 +754,8 @@ excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_pa
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
+If you do not want to use any tool AND have not yet arrived at a solution, call the python_code tool with an empty string as the code.
+
 Example use for tools:
 
 ```json
@@ -971,15 +963,9 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     # Combine system message with the (potentially pruned) core messages
     messages_for_llm = [system_msg] + llm_input_core_messages
     
-    # Log the messages being sent to LLM for debugging
-    # print(f"Messages for LLM (count: {len(messages_for_llm)}):")
-    # for i, msg in enumerate(messages_for_llm):
-    #     print(f"  {i}: Type={type(msg).__name__}, Content='{str(msg.content)[:100].replace('\\n', ' ')}...'")
-    
     # Get response from the assistant
     response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
     print(f"Assistant response type: {type(response)}")
-    # print(f"Response content (first 300 chars): {response.content[:300].replace('\n', ' ')}...")
     content_preview = response.content[:300].replace('\n', ' ')
     print(f"Response content (first 300 chars): {content_preview}...")
     
@@ -997,113 +983,118 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     if action_json and "action" in action_json and "action_input" in action_json:
         tool_name = action_json["action"]
         tool_input = action_json["action_input"]
-        print(f"Extracted tool: {tool_name}")
+        
+        # Handle nested JSON issue - if action_input is a string containing JSON
+        if tool_name == "python_code" and isinstance(tool_input, dict) and "code" in tool_input:
+            code = tool_input["code"]
+            if code.startswith("{") and ("action" in code or "action_input" in code):
+                try:
+                    # Try to see if this is a nested JSON structure
+                    nested_json = json.loads(code)
+                    if isinstance(nested_json, dict) and "action" in nested_json and "action_input" in nested_json:
+                        # Replace with the nested structure
+                        tool_name = nested_json["action"]
+                        tool_input = nested_json["action_input"]
+                        print(f"Unwrapped nested JSON. New tool: {tool_name}")
+                        print(f"New tool input: {tool_input}")
+                except:
+                    # If it fails, keep original values
+                    pass
+        
+        print(f"Using tool: {tool_name}")
         print(f"Tool input: {tool_input}")
         
         tool_call_id = f"call_{random.randint(1000000, 9999999)}"
         
         state_update["current_tool"] = tool_name
         state_update["action_input"] = tool_input
-        # state_update["tool_call_id"] = tool_call_id # If needed by your graph
     else:
         print("No tool action found or 'Final Answer' detected in response.")
         state_update["current_tool"] = None
         state_update["action_input"] = None
-    
+        
     return state_update
 
 def extract_json_from_text(text: str) -> dict:
     """Extract JSON from text, handling markdown code blocks."""
     try:
-        import re  # Import re at the beginning of the function
+        import re
         
         print(f"Attempting to extract JSON from text: {text[:200]}...")
         
-        # Look for "Action:" followed by a markdown code block - common LLM output pattern
-        # This handles cases where the LLM outputs something like:
-        # Action:
-        # ```python
-        # code here
-        # ```
+        # First, clean up the text to handle specific patterns that might confuse parsing
+        text = text.replace('\\n', '\n').replace('\\"', '"')
+        
+        # Pattern 1: Look for "Action:" followed by a markdown code block
         action_match = re.search(r"Action:\s*```(?:python|json)?\s*(.*?)```", text, re.DOTALL)
         if action_match:
             action_content = action_match.group(1).strip()
             print(f"Found action content from markdown block: {action_content[:100]}...")
             
-            # If it looks like Python code, try to create a proper JSON structure
-            if "=" in action_content or "import" in action_content or "print" in action_content:
-                print("Detected Python code, formatting as action_input")
-                return {
-                    "action": "python_code",
-                    "action_input": {"code": action_content}
-                }
+            # Try to parse as JSON first
+            try:
+                parsed_json = json.loads(action_content)
+                if "action" in parsed_json and "action_input" in parsed_json:
+                    return parsed_json
+            except json.JSONDecodeError:
+                # If it's Python code, create action structure
+                if "=" in action_content or "import" in action_content or "print" in action_content:
+                    print("Detected Python code, formatting as action_input")
+                    return {
+                        "action": "python_code",
+                        "action_input": {"code": action_content}
+                    }
         
-        # Look for markdown code blocks - the most common pattern
-        if "```" in text:
-            print("Found markdown code block")
-            # Find all code blocks
-            blocks = []
-            lines = text.split('\n')
-            i = 0
-            while i < len(lines):
-                line = lines[i]
-                if "```" in line:
-                    # Start of code block
-                    start_idx = i + 1
-                    i += 1
-                    # Find the end of the code block
-                    while i < len(lines) and "```" not in lines[i]:
-                        i += 1
-                    if i < len(lines):
-                        # Found the end
-                        block_content = '\n'.join(lines[start_idx:i])
-                        blocks.append(block_content)
-                i += 1
+        # Pattern 2: Look for regular markdown code blocks
+        code_blocks = re.findall(r"```(?:json|python)?(.+?)```", text, re.DOTALL)
+        for block in code_blocks:
+            block = block.strip()
+            print(f"Processing code block: {block[:100]}...")
             
-            # Try to parse each block as JSON
-            for block in blocks:
-                block = block.strip()
-                print(f"Trying to parse block: {block[:100]}...")
-                try:
-                    # Clean the block - sometimes there might be a language identifier
-                    if block.startswith("json"):
-                        block = block[4:].strip()
-                    
-                    # Validate JSON before parsing
-                    parsed = json.loads(block)
-                    print(f"Successfully parsed JSON: {parsed}")
+            # Try to parse as JSON
+            try:
+                parsed = json.loads(block)
+                if "action" in parsed and "action_input" in parsed:
+                    print(f"Successfully parsed JSON block: {parsed}")
                     return parsed
-                except json.JSONDecodeError as e:
-                    print(f"JSON parse error: {e}")
-                    continue
+            except json.JSONDecodeError:
+                # If it's Python code, create action structure
+                if "=" in block or "import" in block or "print" in block or "def " in block:
+                    print("Detected Python code in block, formatting as action_input")
+                    return {
+                        "action": "python_code",
+                        "action_input": {"code": block}
+                    }
         
-        # Look for JSON-like patterns in the text using a more precise regex
-        # Match balanced braces
-        # No need to import re again here
+        # Pattern 3: Direct JSON object ({...}) in the text
+        json_matches = re.findall(r"\{[\s\S]*?\}", text)
+        for json_str in json_matches:
+            try:
+                parsed = json.loads(json_str)
+                if "action" in parsed and "action_input" in parsed:
+                    print(f"Found valid JSON object: {parsed}")
+                    return parsed
+            except json.JSONDecodeError:
+                continue
         
-        # Try to find JSON objects with proper brace matching
-        brace_count = 0
-        start_pos = -1
+        # Pattern 4: Look for patterns like 'action': 'tool_name', 'action_input': {...}
+        action_pattern = re.search(r"['\"](action)['\"]:\s*['\"](\w+)['\"]", text)
+        action_input_pattern = re.search(r"['\"](action_input)['\"]:\s*(\{.+\})", text, re.DOTALL)
         
-        for i, char in enumerate(text):
-            if char == '{':
-                if brace_count == 0:
-                    start_pos = i
-                brace_count += 1
-            elif char == '}':
-                brace_count -= 1
-                if brace_count == 0 and start_pos >= 0:
-                    # Found a complete JSON object
-                    json_candidate = text[start_pos:i+1]
-                    try:
-                        parsed = json.loads(json_candidate)
-                        print(f"Found valid JSON: {parsed}")
-                        return parsed
-                    except json.JSONDecodeError:
-                        continue
+        if action_pattern and action_input_pattern:
+            action = action_pattern.group(2)
+            action_input_str = action_input_pattern.group(2)
+            
+            try:
+                action_input = json.loads(action_input_str)
+                return {
+                    "action": action,
+                    "action_input": action_input
+                }
+            except json.JSONDecodeError:
+                pass
         
-        # If we're here, we couldn't find a valid JSON object
-        print("Could not extract valid JSON from text")
+        print("Could not extract valid JSON from text using any pattern")
         return None
         
     except Exception as e:
