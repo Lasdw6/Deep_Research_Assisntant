@@ -2,7 +2,10 @@
 .env.*
 image.png
 
-GAIA
+GAIA-repo/
+GAIA-repo/*
+
+GAIA/
 GAIA/*
 
 pycache/*

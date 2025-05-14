@@ -17,744 +17,57 @@ import pandas as pd
 from tabulate import tabulate
 import base64
 
-from langchain_community.document_loaders import WikipediaLoader
-from langchain_community.document_loaders import ArxivLoader
-from langchain_community.tools.tavily_search import TavilySearchResults 
-from supabase import create_client, Client
+# Import all tool functions from tools.py
+from tools import (
+    tools_config,
+    run_python_code,
+    scrape_webpage,
+    wikipedia_search,
+    tavily_search,
+    arxiv_search,
+    supabase_operation,
+    excel_to_text,
+    save_attachment_to_tempfile,
+    process_youtube_video
+)
 
 load_dotenv()
 
-def run_python_code(code: str):
-    """Execute Python code safely using exec() instead of subprocess."""
-    # Check for potentially dangerous operations
-    dangerous_operations = [
-        "os.system", "os.popen", "os.unlink", "os.remove",
-        "subprocess.run", "subprocess.call", "subprocess.Popen",
-        "shutil.rmtree", "shutil.move", "shutil.copy",
-        "open(", "file(", "eval(", "exec(", 
-        "__import__", "input(", "raw_input(",
-        "__builtins__", "globals(", "locals(",
-        "compile(", "execfile(", "reload("
-    ]
-    
-    # Safe imports that should be allowed
-    safe_imports = {
-        "import datetime", "import math", "import random", 
-        "import statistics", "import collections", "import itertools",
-        "import re", "import json", "import csv", "import numpy",
-        "import pandas", "from math import", "from datetime import",
-        "from statistics import", "from collections import",
-        "from itertools import"
-    }
-    
-    # Check for dangerous operations
-    for dangerous_op in dangerous_operations:
-        if dangerous_op in code:
-            return f"Error: Code contains potentially unsafe operations: {dangerous_op}"
-    
-    # Check each line for imports
-    for line in code.splitlines():
-        line = line.strip()
-        if line.startswith("import ") or line.startswith("from "):
-            # Check if it's in our safe list
-            is_safe = any(line.startswith(safe_import) for safe_import in safe_imports)
-            # Also allow basic numpy/pandas imports
-            is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
-            if not is_safe:
-                return f"Error: Code contains potentially unsafe import: {line}"
-    
-    try:
-        # Capture stdout to get print output
-        import io
-        import sys
-        from contextlib import redirect_stdout
-        
-        # Create a restricted globals environment
-        restricted_globals = {
-            '__builtins__': {
-                'abs': abs, 'all': all, 'any': any, 'bin': bin, 'bool': bool,
-                'chr': chr, 'dict': dict, 'dir': dir, 'divmod': divmod,
-                'enumerate': enumerate, 'filter': filter, 'float': float,
-                'format': format, 'hex': hex, 'int': int, 'len': len,
-                'list': list, 'map': map, 'max': max, 'min': min, 'oct': oct,
-                'ord': ord, 'pow': pow, 'print': print, 'range': range,
-                'reversed': reversed, 'round': round, 'set': set, 'slice': slice,
-                'sorted': sorted, 'str': str, 'sum': sum, 'tuple': tuple,
-                'type': type, 'zip': zip,
-            }
-        }
-        
-        # Allow safe modules
-        import math
-        import datetime
-        import random
-        import statistics
-        import collections
-        import itertools
-        import re
-        import json
-        import csv
-        
-        restricted_globals['math'] = math
-        restricted_globals['datetime'] = datetime
-        restricted_globals['random'] = random
-        restricted_globals['statistics'] = statistics
-        restricted_globals['collections'] = collections
-        restricted_globals['itertools'] = itertools
-        restricted_globals['re'] = re
-        restricted_globals['json'] = json
-        restricted_globals['csv'] = csv
-        
-        # Try to import numpy and pandas if available
-        try:
-            import numpy as np
-            restricted_globals['numpy'] = np
-            restricted_globals['np'] = np
-        except ImportError:
-            pass
-            
-        try:
-            import pandas as pd
-            restricted_globals['pandas'] = pd
-            restricted_globals['pd'] = pd
-        except ImportError:
-            pass
-        
-        # Create local scope
-        local_scope = {}
-        
-        # Capture stdout
-        captured_output = io.StringIO()
-        
-        # Execute the entire code block at once
-        with redirect_stdout(captured_output):
-            # Try to evaluate as expression first (for simple expressions)
-            lines = code.strip().split('\n')
-            if len(lines) == 1 and not any(keyword in code for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with']):
-                try:
-                    result = eval(code, restricted_globals, local_scope)
-                    print(f"Result: {result}")
-                except:
-                    # If eval fails, use exec
-                    exec(code, restricted_globals, local_scope)
-            else:
-                # For multi-line code, execute the entire block
-                exec(code, restricted_globals, local_scope)
-        
-        # Get the captured output
-        output = captured_output.getvalue()
-        
-        if output.strip():
-            return output.strip()
-        else:
-            # If no output, check if there's a result from the last expression
-            lines = code.strip().split('\n')
-            last_line = lines[-1].strip() if lines else ""
-            
-            # If the last line looks like an expression, try to evaluate it
-            if last_line and not any(keyword in last_line for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with', 'print']):
-                try:
-                    result = eval(last_line, restricted_globals, local_scope)
-                    return f"Result: {result}"
-                except:
-                    pass
-                    
-            return "Code executed successfully with no output."
-                
-    except SyntaxError as e:
-        return f"Syntax Error: {str(e)}"
-    except NameError as e:
-        return f"Name Error: {str(e)}"
-    except ZeroDivisionError as e:
-        return f"Zero Division Error: {str(e)}"
-    except Exception as e:
-        return f"Error executing code: {str(e)}"
+# Remove the following functions from agent.py since they're now imported from tools.py:
+# - run_python_code (lines ~28-175)
+# - scrape_webpage (lines ~177-310) 
+# - wikipedia_search (lines ~345-405)
+# - tavily_search (lines ~407-470)
+# - arxiv_search (lines ~472-535)
+# - supabase_operation (lines ~537-620)
+# - excel_to_text (lines ~622-690)
+# - save_attachment_to_tempfile (lines ~1680-1706)
 
-# Apify-based search function
-# def apify_google_search(query: str, limit: int = 10) -> str:
-#     """
-#     Use Apify's Google Search Results Scraper to get search results
-#     
-#     Args:
-#         query: The search query string
-#         limit: Number of results to return (10, 20, 30, 40, 50, 100)
-#         
-#     Returns:
-#         Formatted search results as a string
-#     """
-#     # You would need to provide a valid Apify API token
-#     # You can get one by signing up at https://apify.com/
-#     # Replace this with your actual Apify API token or set as environment variable
-#     APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
-#     
-#     if not APIFY_API_TOKEN:
-#         print("No Apify API token found. Using fallback search method.")
-#         return fallback_search(query)
-#     
-#     try:
-#         # Initialize the ApifyClient with API token
-#         client = ApifyClient(APIFY_API_TOKEN)
-#         
-#         # Prepare the Actor input - convert limit to string as required by the API
-#         run_input = {
-#             "keyword": query,
-#             "limit": str(limit),  # Convert to string as required by the API
-#             "country": "US"
-#         }
-#         
-#         # The Actor ID for the Google Search Results Scraper
-#         ACTOR_ID = "563JCPLOqM1kMmbbP"
-#         
-#         print(f"Starting Apify search for: '{query}'")
-#         
-#         # Run the Actor and wait for it to finish (with timeout)
-#         run = client.actor(ACTOR_ID).call(run_input=run_input, timeout_secs=60)
-#         
-#         if not run or not run.get("defaultDatasetId"):
-#             print("Failed to get results from Apify actor")
-#             return fallback_search(query)
-#             
-#         # Fetch Actor results from the run's dataset
-#         results = []
-#         for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-#             results.append(item)
-#         
-#         # Format and return the results
-#         return format_search_results(results, query)
-#         
-#     except Exception as e:
-#         print(f"Error using Apify: {str(e)}")
-#         return fallback_search(query)
+# Also remove the tools_config definition (lines ~795-870) since it's imported from tools.py
 
-def scrape_webpage(url: str) -> str:
-    """
-    Safely scrape content from a specified URL.
-    
-    Args:
-        url: The URL to scrape
-        
-    Returns:
-        Formatted webpage content as text
-    """
-    # Check if the URL is valid
-    try:
-        # Parse the URL to validate it
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
-            return f"Error: Invalid URL format: {url}. Please provide a valid URL with http:// or https:// prefix."
-        
-        # Block potentially dangerous URLs
-        blocked_domains = [
-            "localhost", "127.0.0.1", "0.0.0.0", 
-            "192.168.", "10.0.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
-            "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", 
-            "172.28.", "172.29.", "172.30.", "172.31."
-        ]
-        
-        if any(domain in parsed_url.netloc for domain in blocked_domains):
-            return f"Error: Access to internal/local URLs is blocked for security: {url}"
-        
-        print(f"Scraping URL: {url}")
-        
-        # Set user agent to avoid being blocked
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0',
-        }
-        
-        # Set a reasonable timeout to avoid hanging
-        timeout = 10
-        
-        # Make the request
-        response = requests.get(url, headers=headers, timeout=timeout)
-        
-        # Check if request was successful
-        if response.status_code != 200:
-            return f"Error: Failed to fetch the webpage. Status code: {response.status_code}"
-        
-        # Use BeautifulSoup to parse the HTML
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Remove script and style elements that are not relevant to content
-        for script_or_style in soup(["script", "style", "iframe", "footer", "nav"]):
-            script_or_style.decompose()
-        
-        # Get the page title
-        title = soup.title.string if soup.title else "No title found"
-        
-        # Extract the main content
-        # First try to find main content areas
-        main_content = soup.find('main') or soup.find('article') or soup.find(id='content') or soup.find(class_='content')
-        
-        # If no main content area is found, use the entire body
-        if not main_content:
-            main_content = soup.body
-        
-        # Convert to plain text
-        h = html2text.HTML2Text()
-        h.ignore_links = False
-        h.ignore_images = True
-        h.ignore_tables = False
-        h.unicode_snob = True
-        
-        if main_content:
-            text_content = h.handle(str(main_content))
-        else:
-            text_content = h.handle(response.text)
-        
-        # Limit content length to avoid overwhelming the model
-        max_content_length = 99999999999
-        if len(text_content) > max_content_length:
-            text_content = text_content[:max_content_length] + "\n\n[Content truncated due to length...]"
-        
-        # Format the response
-        result = f"Title: {title}\nURL: {url}\n\n{text_content}"
-        
-        return result
-        
-    except requests.exceptions.Timeout:
-        return f"Error: Request timed out while trying to access {url}"
-    except requests.exceptions.ConnectionError:
-        return f"Error: Failed to connect to {url}. The site might be down or the URL might be incorrect."
-    except requests.exceptions.RequestException as e:
-        return f"Error requesting {url}: {str(e)}"
-    except Exception as e:
-        return f"Error scraping webpage {url}: {str(e)}"
-
-# Comment out the format_search_results function (around line 180)
-# def format_search_results(results: List[Dict], query: str) -> str:
-#     """Format the search results into a readable string"""
-#     if not results or len(results) == 0:
-#         return f"No results found for query: {query}"
-#     
-#     print(f"Raw search results: {str(results)[:1000]}...")
-#     
-#     # Extract search results from the Apify output
-#     formatted_results = f"Search results for '{query}':\n\n"
-#     
-#     # Check if results is a list of dictionaries or a dictionary with nested results
-#     if isinstance(results, dict) and "results" in results:
-#         items = results["results"]
-#     elif isinstance(results, list):
-#         items = results
-#     else:
-#         return f"Unable to process results for query: {query}"
-#     
-#     # Handle different Apify result formats
-#     if len(items) > 0:
-#         # Check the structure of the first item to determine format
-#         first_item = items[0]
-#         
-#         # If item has 'organicResults', this is the format from some Apify actors
-#         if isinstance(first_item, dict) and "organicResults" in first_item:
-#             organic_results = first_item.get("organicResults", [])
-#             for i, result in enumerate(organic_results[:10], 1):
-#                 if "title" in result and "url" in result:
-#                     formatted_results += f"{i}. {result['title']}\n"
-#                     formatted_results += f"   URL: {result['url']}\n"
-#                     if "snippet" in result:
-#                         formatted_results += f"   {result['snippet']}\n"
-#                     formatted_results += "\n"
-#         else:
-#             # Standard format with title/url/description
-#             for i, result in enumerate(items[:10], 1):
-#                 if "title" in result and "url" in result:
-#                     formatted_results += f"{i}. {result['title']}\n"
-#                     formatted_results += f"   URL: {result['url']}\n"
-#                     if "description" in result:
-#                         formatted_results += f"   {result['description']}\n"
-#                     elif "snippet" in result:
-#                         formatted_results += f"   {result['snippet']}\n"
-#                     formatted_results += "\n"
-#     
-#     return formatted_results
-
-# Comment out the fallback_search function (around line 220)
-# def fallback_search(query: str) -> str:
-#     """Fallback search method using DuckDuckGo when Apify is not available"""
-#     try:
-#         search_tool = DuckDuckGoSearchRun()
-#         result = search_tool.invoke(query)
-#         return "Observation: " + result
-#     except Exception as e:
-#         return f"Search error: {str(e)}. Please try a different query or method."
-
-# Comment out the safe_web_search function (around line 230)
-# def safe_web_search(query: str) -> str:
-#     """Search the web safely with error handling and retry logic."""
-#     if not query:
-#         return "Error: No search query provided. Please specify what you want to search for."
-#     
-#     # Try using Apify first, if it fails it will use the fallback
-#     return "Observation: " + apify_google_search(query)
-#     
-#     # The code below is kept for reference but won't be executed
-#     max_retries = 3
-#     backoff_factor = 1.5
-#     
-#     for attempt in range(max_retries):
-#         try:
-#             # Use the DuckDuckGoSearchRun tool
-#             search_tool = DuckDuckGoSearchRun()
-#             result = search_tool.invoke(query)
-#             
-#             # If we get an empty result, provide a helpful message
-#             if not result or len(result.strip()) < 10:
-#                 return f"The search for '{query}' did not return any useful results. Please try a more specific query or a different search engine."
-#             
-#             return "Observation: " + result
-#             
-#         except Exception as e:
-#             # If we're being rate limited
-#             if "Ratelimit" in str(e) or "429" in str(e):
-#                 if attempt < max_retries - 1:
-#                     wait_time = backoff_factor ** attempt
-#                     print(f"Rate limited, waiting {wait_time:.2f} seconds before retrying...")
-#                     time.sleep(wait_time)
-#                 else:
-#                     # On last attempt, return a helpful error
-#                     error_msg = f"I'm currently unable to search for '{query}' due to service rate limits. "
-#                     return error_msg
-#             else:
-#                 # For other types of errors
-#                 return f"Error while searching for '{query}': {str(e)}"
-#             
-#     return f"Failed to search for '{query}' after multiple attempts due to rate limiting."
-
-def wikipedia_search(query: str, num_results: int = 3) -> str:
-    """
-    Search Wikipedia for information about a specific query.
-    
-    Args:
-        query: Search query
-        num_results: Number of search results to return (default: 3)
-        
-    Returns:
-        Formatted Wikipedia search results
-    """
-    try:
-        # Validate input
-        if not query or not isinstance(query, str):
-            return "Error: Please provide a valid search query."
-        
-        # Ensure num_results is valid
-        try:
-            num_results = int(num_results)
-            if num_results <= 0:
-                num_results = 3  # Default to 3 if invalid
-        except:
-            num_results = 3  # Default to 3 if conversion fails
-            
-        print(f"Searching Wikipedia for: {query}")
-        
-        # Use WikipediaLoader from LangChain
-        loader = WikipediaLoader(query=query, load_max_docs=num_results)
-        docs = loader.load()
-        
-        if not docs:
-            return f"No Wikipedia results found for '{query}'. Try refining your search."
-        
-        # Format the results
-        formatted_results = f"Wikipedia search results for '{query}':\n\n"
-        
-        for i, doc in enumerate(docs, 1):
-            title = doc.metadata.get('title', 'Unknown Title')
-            source = doc.metadata.get('source', 'No URL')
-            content = doc.page_content
-            
-            # Truncate content if too long
-            if len(content) > 500:
-                content = content[:500] + "..."
-                
-            formatted_results += f"{i}. {title}\n"
-            formatted_results += f"   URL: {source}\n"
-            formatted_results += f"   {content}\n\n"
-        
-        return formatted_results
-        
-    except Exception as e:
-        return f"Error searching Wikipedia: {str(e)}"
-
-def tavily_search(query: str, search_depth: str = "basic") -> str:
-    """
-    Search the web using the Tavily Search API.
-    
-    Args:
-        query: Search query
-        search_depth: Depth of search ('basic' or 'comprehensive')
-        
-    Returns:
-        Formatted search results from Tavily
-    """
-    try:
-        # Check for API key
-        tavily_api_key = os.environ.get("TAVILY_API_KEY")
-        if not tavily_api_key:
-            return "Error: Tavily API key not found. Please set the TAVILY_API_KEY environment variable."
-            
-        # Validate input
-        if not query or not isinstance(query, str):
-            return "Error: Please provide a valid search query."
-            
-        # Validate search_depth
-        if search_depth not in ["basic", "comprehensive"]:
-            search_depth = "basic"  # Default to basic if invalid
-            
-        print(f"Searching Tavily for: {query} (depth: {search_depth})")
-        
-        # Initialize the Tavily search tool
-        search = TavilySearchResults(api_key=tavily_api_key)
-        
-        # Execute the search
-        results = search.invoke({"query": query, "search_depth": search_depth})
-        
-        if not results:
-            return f"No Tavily search results found for '{query}'. Try refining your search."
-            
-        # Format the results
-        formatted_results = f"Tavily search results for '{query}':\n\n"
-        
-        for i, result in enumerate(results, 1):
-            formatted_results += f"{i}. {result.get('title', 'No title')}\n"
-            formatted_results += f"   URL: {result.get('url', 'No URL')}\n"
-            formatted_results += f"   {result.get('content', 'No content')}\n\n"
-            
-        return formatted_results
-        
-    except Exception as e:
-        return f"Error searching with Tavily: {str(e)}"
-
-def arxiv_search(query: str, max_results: int = 5) -> str:
-    """
-    Search ArXiv for scientific papers matching the query.
-    
-    Args:
-        query: Search query for ArXiv
-        max_results: Maximum number of results to return
-        
-    Returns:
-        Formatted ArXiv search results
-    """
-    try:
-        # Validate input
-        if not query or not isinstance(query, str):
-            return "Error: Please provide a valid search query."
-            
-        # Ensure max_results is valid
-        try:
-            max_results = int(max_results)
-            if max_results <= 0 or max_results > 10:
-                max_results = 5  # Default to 5 if invalid or too large
-        except:
-            max_results = 5  # Default to 5 if conversion fails
-            
-        print(f"Searching ArXiv for: {query}")
-        
-        # Use ArxivLoader from LangChain
-        loader = ArxivLoader(
-            query=query,
-            load_max_docs=max_results,
-            load_all_available_meta=True
-        )
-        
-        docs = loader.load()
-        
-        if not docs:
-            return f"No ArXiv papers found for '{query}'. Try refining your search."
-            
-        # Format the results
-        formatted_results = f"ArXiv papers for '{query}':\n\n"
-        
-        for i, doc in enumerate(docs, 1):
-            meta = doc.metadata
-            title = meta.get('Title', 'Unknown Title')
-            url = meta.get('Entry ID', 'No URL')
-            authors = meta.get('Authors', 'Unknown Authors')
-            published = meta.get('Published', 'Unknown Date')
-            
-            formatted_results += f"{i}. {title}\n"
-            formatted_results += f"   URL: {url}\n"
-            formatted_results += f"   Authors: {authors}\n"
-            formatted_results += f"   Published: {published}\n"
-            
-            # Add abstract, truncated if too long
-            abstract = doc.page_content.replace('\n', ' ')
-            if len(abstract) > 300:
-                abstract = abstract[:300] + "..."
-            formatted_results += f"   Abstract: {abstract}\n\n"
-            
-        return formatted_results
-        
-    except Exception as e:
-        return f"Error searching ArXiv: {str(e)}"
-
-def supabase_operation(operation_type: str, table: str, data: dict = None, filters: dict = None) -> str:
-    """
-    Perform operations on Supabase database.
-    
-    Args:
-        operation_type: Type of operation ('insert', 'select', 'update', 'delete')
-        table: Name of the table to operate on
-        data: Data to insert/update (for insert/update operations)
-        filters: Filters for select/update/delete operations (e.g., {"id": 1})
-        
-    Returns:
-        Result of the operation as a formatted string
-    """
-    try:
-        # Get Supabase credentials from environment variables
-        supabase_url = os.environ.get("SUPABASE_URL")
-        supabase_key = os.environ.get("SUPABASE_ANON_KEY")
-        
-        if not supabase_url or not supabase_key:
-            return "Error: Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables."
-        
-        # Create Supabase client
-        supabase: Client = create_client(supabase_url, supabase_key)
-        
-        # Validate inputs
-        if not table:
-            return "Error: Table name is required."
-        
-        if operation_type not in ['insert', 'select', 'update', 'delete']:
-            return "Error: Invalid operation type. Use 'insert', 'select', 'update', or 'delete'."
-        
-        # Perform the operation based on type
-        if operation_type == 'insert':
-            if not data:
-                return "Error: Data is required for insert operation."
-            
-            result = supabase.table(table).insert(data).execute()
-            return f"Insert successful: {len(result.data)} row(s) inserted into {table}"
-        
-        elif operation_type == 'select':
-            query = supabase.table(table).select("*")
-            
-            # Apply filters if provided
-            if filters:
-                for key, value in filters.items():
-                    query = query.eq(key, value)
-            
-            result = query.execute()
-            return f"Select successful: Found {len(result.data)} row(s) in {table}\nData: {json.dumps(result.data, indent=2)}"
-        
-        elif operation_type == 'update':
-            if not data or not filters:
-                return "Error: Both data and filters are required for update operation."
-            
-            query = supabase.table(table).update(data)
-            
-            # Apply filters
-            for key, value in filters.items():
-                query = query.eq(key, value)
-            
-            result = query.execute()
-            return f"Update successful: {len(result.data)} row(s) updated in {table}"
-        
-        elif operation_type == 'delete':
-            if not filters:
-                return "Error: Filters are required for delete operation."
-            
-            query = supabase.table(table).delete()
-            
-            # Apply filters
-            for key, value in filters.items():
-                query = query.eq(key, value)
-            
-            result = query.execute()
-            return f"Delete successful: Rows deleted from {table}"
-        
-    except Exception as e:
-        return f"Error performing Supabase operation: {str(e)}"
-
-def excel_to_text(excel_path: str, sheet_name: Optional[str] = None, file_content: Optional[bytes] = None) -> str:
-    """
-    Read an Excel file and return a Markdown table of the requested sheet.
-    
-    Args:
-        excel_path: Path to the Excel file (.xlsx or .xls) or name for the attached file.
-        sheet_name: Optional name or index of the sheet to read. If None, reads the first sheet.
-        file_content: Optional binary content of the file if provided as an attachment.
-        
-    Returns:
-        A Markdown table representing the Excel sheet, or an error message if the file is not found or cannot be read.
-    """
-    try:
-        # Handle file attachment case
-        if file_content:
-            # Create a temporary file to save the attachment
-            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
-                temp_file.write(file_content)
-                temp_path = temp_file.name
-            
-            print(f"Saved attached Excel file to temporary location: {temp_path}")
-            file_path = Path(temp_path)
-        else:
-            # Regular file path case
-            file_path = Path(excel_path).expanduser().resolve()
-            if not file_path.is_file():
-                return f"Error: Excel file not found at {file_path}"
-
-        # Process the Excel file
-        sheet: Union[str, int] = (
-            int(sheet_name)
-            if sheet_name and sheet_name.isdigit()
-            else sheet_name or 0
-        )
-
-        df = pd.read_excel(file_path, sheet_name=sheet)
-
-        # Clean up temporary file if we created one
-        if file_content and os.path.exists(temp_path):
-            os.unlink(temp_path)
-            print(f"Deleted temporary Excel file: {temp_path}")
-
-        if hasattr(df, "to_markdown"):
-            return df.to_markdown(index=False)
-
-        return tabulate(df, headers="keys", tablefmt="github", showindex=False)
-
-    except Exception as e:
-        # Clean up temporary file in case of error
-        if file_content and 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
-            print(f"Deleted temporary Excel file due to error: {temp_path}")
-        return f"Error reading Excel file: {e}"
+# The rest of the file remains the same...
 
 # System prompt to guide the model's behavior
 #web_search: Search the google search engine when Tavily Search and Wikipedia Search do not return a result. Provide a specific search query.
 #webpage_scrape: Scrape content from a specific webpage URL when Tavily Search and Wikipedia Search do not return a result. Provide a valid URL to extract information from a particular web page.
 #Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape. When Web_search does not return a result, use Tavily Search.
 
-SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely on your internal knowledge unless web searches are rate-limited or you're specifically instructed to. You have access to the following tools:
-
-python_code: Execute Python code. Provide the complete Python code as a string. Use this tool to calculate math problems.
-wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return.
-tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive'.
-arxiv_search: Search ArXiv for scientific papers on a specific topic. Optionally specify max_results to control the number of papers returned.
-supabase_operation: Perform database operations on Supabase (insert, select, update, delete). Provide operation_type, table name, and optional data/filters.
-excel_to_text: Read an Excel file and convert it to a Markdown table. You can provide either the path to an Excel file or use a file attachment. For attachments, provide a base64-encoded string of the file content and a filename.
+SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely on your internal knowledge unless the tools fail to provide a result:
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
 
 The only values that should be in the "action" field are:
-python_code: Execute Python code, args: {"code": {"type": "string"}}
-wikipedia_search: Search Wikipedia, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
-tavily_search: Search with Tavily, args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
-arxiv_search: Search ArXiv papers, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
+python_code: Execute Python code. Use this tool to calculate math problems. args: {"code": {"type": "string"}}
+wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
+tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive', args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
+arxiv_search: Search ArXiv for scientific papers. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
-excel_to_text: Convert Excel to Markdown table with file path, args: {"excel_path": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
+process_youtube_video: Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
 
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
-
-If you do not want to use any tool AND have not yet arrived at a solution, call the python_code tool with an empty string as the code.
 
 Example use for tools:
 
@@ -767,21 +80,14 @@ Example use for tools:
 or
 ```json
 {
-  "action": "python_code",
-  "action_input": {"code": "c = a + b"}
-}
-```
-or
-```json
-{
-  "action": "excel_to_text",
-  "action_input": {"excel_path": "data.xlsx", "file_content": "BASE64_ENCODED_CONTENT_HERE", "sheet_name": "Sheet1"}
+  "action": "process_youtube_video",
+  "action_input": {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "summarize": true}
 }
 ```
 
 ALWAYS follow this specific format for your responses. Your entire response will follow this pattern:
 Question: [the user's question]
-Thought: [your reasoning about what to do next]
+Thought: [your reasoning about what to do next, break it down into smaller steps]
 Action: 
 ```json
 {
@@ -790,7 +96,7 @@ Action:
 }
 ```
 Observation: [the result from the tool will appear here]
-Thought: [your reasoning after seeing the observation]
+Thought: [your reasoning after seeing the observation, break it down into smaller steps]
 Action: 
 ```json
 {
@@ -863,6 +169,11 @@ tools_config = [
         "name": "excel_to_text",
         "description": "Read an Excel file and return a Markdown table. You can provide either the path to an Excel file or use a file attachment. For attachments, provide a base64-encoded string of the file content and a filename.",
         "func": excel_to_text
+    },
+    {
+        "name": "process_youtube_video",
+        "description": "Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript.",
+        "func": process_youtube_video
     }
 ]
 
@@ -984,22 +295,21 @@ def assistant(state: AgentState) -> Dict[str, Any]:
         tool_name = action_json["action"]
         tool_input = action_json["action_input"]
         
-        # Handle nested JSON issue - if action_input is a string containing JSON
-        if tool_name == "python_code" and isinstance(tool_input, dict) and "code" in tool_input:
-            code = tool_input["code"]
-            if code.startswith("{") and ("action" in code or "action_input" in code):
-                try:
-                    # Try to see if this is a nested JSON structure
-                    nested_json = json.loads(code)
-                    if isinstance(nested_json, dict) and "action" in nested_json and "action_input" in nested_json:
-                        # Replace with the nested structure
-                        tool_name = nested_json["action"]
-                        tool_input = nested_json["action_input"]
-                        print(f"Unwrapped nested JSON. New tool: {tool_name}")
-                        print(f"New tool input: {tool_input}")
-                except:
-                    # If it fails, keep original values
-                    pass
+        # Handle nested JSON issue - check if any value in action_input is a JSON string
+        if isinstance(tool_input, dict):
+            for key, value in tool_input.items():
+                if isinstance(value, str) and value.strip().startswith("{"):
+                    try:
+                        nested_json = json.loads(value)
+                        if isinstance(nested_json, dict) and "action" in nested_json and "action_input" in nested_json:
+                            # This is a nested structure, use the inner one
+                            tool_name = nested_json["action"]
+                            tool_input = nested_json["action_input"]
+                            print(f"Unwrapped nested JSON. New tool: {tool_name}")
+                            print(f"New tool input: {tool_input}")
+                            break
+                    except json.JSONDecodeError:
+                        continue
         
         print(f"Using tool: {tool_name}")
         print(f"Tool input: {tool_input}")
@@ -1075,7 +385,7 @@ def extract_json_from_text(text: str) -> dict:
                     print(f"Found valid JSON object: {parsed}")
                     return parsed
             except json.JSONDecodeError:
-                continue
+                    continue
         
         # Pattern 4: Look for patterns like 'action': 'tool_name', 'action_input': {...}
         action_pattern = re.search(r"['\"](action)['\"]:\s*['\"](\w+)['\"]", text)
@@ -1505,6 +815,62 @@ def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+# Add a new node function for processing YouTube videos
+def process_youtube_video_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes YouTube videos."""
+    print("YouTube Video Processing Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"YouTube video processing action_input: {action_input}")
+    
+    # Extract URL and other parameters
+    url = ""
+    summarize = True  # Default
+    
+    if isinstance(action_input, dict):
+        url = action_input.get("url", "")
+        # Check if summarize parameter exists and is a boolean
+        if "summarize" in action_input:
+            try:
+                summarize = bool(action_input["summarize"])
+            except:
+                print("Invalid summarize parameter, using default (True)")
+    elif isinstance(action_input, str):
+        # If action_input is just a string, assume it's the URL
+        url = action_input
+    
+    print(f"Processing YouTube video: '{url}' (summarize: {summarize})")
+    
+    # Safety check - don't run with empty URL
+    if not url:
+        result = "Error: No URL provided. Please provide a valid YouTube URL."
+    else:
+        # Import the function dynamically to ensure we're using the latest version
+        from tools import process_youtube_video
+        # Call the YouTube processing function
+        result = process_youtube_video(url, summarize)
+    
+    print(f"YouTube processing result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -1513,8 +879,6 @@ def router(state: AgentState) -> str:
     print(f"Routing to: {tool}")
     print(f"Router received action_input: {action_input}")
     
-    # if tool == "web_search":
-    #     return "web_search"
     if tool == "python_code":
         return "python_code"
     elif tool == "webpage_scrape":
@@ -1529,6 +893,8 @@ def router(state: AgentState) -> str:
         return "supabase_operation"
     elif tool == "excel_to_text":
         return "excel_to_text"
+    elif tool == "process_youtube_video":
+        return "process_youtube_video"
     else:
         return "end"
 
@@ -1539,7 +905,6 @@ def create_agent_graph() -> StateGraph:
 
     # Define nodes: these do the work
     builder.add_node("assistant", assistant)
-    # builder.add_node("web_search", web_search_node)
     builder.add_node("python_code", python_code_node)
     builder.add_node("webpage_scrape", webpage_scrape_node)
     builder.add_node("wikipedia_search", wikipedia_search_node)
@@ -1547,6 +912,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("arxiv_search", arxiv_search_node)
     builder.add_node("supabase_operation", supabase_operation_node)
     builder.add_node("excel_to_text", excel_to_text_node)
+    builder.add_node("process_youtube_video", process_youtube_video_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -1571,7 +937,6 @@ def create_agent_graph() -> StateGraph:
         "debug",
         router,
         {
-            # "web_search": "web_search",
             "python_code": "python_code",
             "webpage_scrape": "webpage_scrape",
             "wikipedia_search": "wikipedia_search",
@@ -1579,12 +944,12 @@ def create_agent_graph() -> StateGraph:
             "arxiv_search": "arxiv_search",
             "supabase_operation": "supabase_operation",
             "excel_to_text": "excel_to_text",
+            "process_youtube_video": "process_youtube_video",
             "end": END
         }
     )
     
     # Tools always go back to assistant
-    # builder.add_edge("web_search", "assistant")
     builder.add_edge("python_code", "assistant")
     builder.add_edge("webpage_scrape", "assistant")
     builder.add_edge("wikipedia_search", "assistant")
@@ -1592,6 +957,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("arxiv_search", "assistant")
     builder.add_edge("supabase_operation", "assistant")
     builder.add_edge("excel_to_text", "assistant")
+    builder.add_edge("process_youtube_video", "assistant")
     
     # Compile the graph
     return builder.compile()
@@ -1676,31 +1042,4 @@ milk, eggs, flour, whole bean coffee, Oreos, sweet potatoes, fresh basil, plums,
 I need to make headings for the fruits and vegetables. Could you please create a list of just the vegetables from my list? If you could do that, then I can figure out how to categorize the rest of the list into the appropriate categories. But remember that my mom is a real stickler, so make sure that no botanical fruits end up on the vegetable list, or she won't get them when she's at the store. Please alphabetize the list of vegetables, and place each item in a comma separated list.""")
     print("\nFinal Response:")
     print(response)
-
-def save_attachment_to_tempfile(file_content_b64: str, file_extension: str = '.xlsx') -> str:
-    """
-    Decode a base64 file content and save it to a temporary file.
-    
-    Args:
-        file_content_b64: Base64 encoded file content
-        file_extension: File extension to use for the temporary file
-        
-    Returns:
-        Path to the saved temporary file
-    """
-    try:
-        # Decode the base64 content
-        file_content = base64.b64decode(file_content_b64)
-        
-        # Create a temporary file with the appropriate extension
-        with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
-            temp_file.write(file_content)
-            temp_path = temp_file.name
-            
-        print(f"Saved attachment to temporary file: {temp_path}")
-        return temp_path
-    
-    except Exception as e:
-        print(f"Error saving attachment: {e}")
-        return None
 

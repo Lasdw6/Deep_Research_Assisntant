@@ -11,3 +11,6 @@ html2text
 supabase
 pandas
 tabulate
+pytube
+youtube-transcript-api
+python-dotenv

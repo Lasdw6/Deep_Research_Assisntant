@@ -16,6 +16,11 @@ from langchain_community.document_loaders import ArxivLoader
 from langchain_community.tools.tavily_search import TavilySearchResults
 from supabase import create_client, Client
 
+# Add new imports for YouTube processing
+import re
+import pytube
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+
 load_dotenv()
 
 def run_python_code(code: str):
@@ -590,6 +595,135 @@ def save_attachment_to_tempfile(file_content_b64: str, file_extension: str = '.x
         print(f"Error saving attachment: {e}")
         return None
 
+def process_youtube_video(url: str, summarize: bool = True) -> str:
+    """
+    Process a YouTube video by extracting its transcript/captions and basic metadata.
+    Optionally summarize the content.
+    
+    Args:
+        url: URL of the YouTube video
+        summarize: Whether to include a summary of the video content
+        
+    Returns:
+        Formatted video information including title, description, transcript, and optional summary
+    """
+    try:
+        # Validate YouTube URL
+        if "youtube.com" not in url and "youtu.be" not in url:
+            return f"Error: The URL {url} doesn't appear to be a valid YouTube link"
+        
+        print(f"Processing YouTube video: {url}")
+        
+        # Extract video ID from the URL
+        video_id = None
+        if "youtube.com/watch" in url:
+            # Format: https://www.youtube.com/watch?v=VIDEO_ID
+            query_string = urlparse(url).query
+            params = {p.split('=')[0]: p.split('=')[1] for p in query_string.split('&') if '=' in p}
+            video_id = params.get('v')
+        elif "youtu.be" in url:
+            # Format: https://youtu.be/VIDEO_ID
+            video_id = url.split('/')[-1]
+        
+        if not video_id:
+            return f"Error: Could not extract video ID from the URL: {url}"
+        
+        # Get video metadata using pytube
+        try:
+            youtube = pytube.YouTube(url)
+            video_title = youtube.title
+            video_author = youtube.author
+            video_description = youtube.description
+            video_length = youtube.length  # in seconds
+            video_views = youtube.views
+            video_publish_date = youtube.publish_date
+        except Exception as e:
+            print(f"Error getting video metadata: {e}")
+            video_title = "Unknown title"
+            video_author = "Unknown author"
+            video_description = "No description available"
+            video_length = 0
+            video_views = 0
+            video_publish_date = None
+        
+        # Format video length from seconds to minutes and seconds
+        minutes = video_length // 60
+        seconds = video_length % 60
+        length_formatted = f"{minutes}:{seconds:02d}"
+        
+        # Get video transcript using youtube_transcript_api
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            
+            # Format transcript into readable text
+            transcript_text = ""
+            for entry in transcript_list:
+                start_time = int(entry['start'])
+                start_minutes = start_time // 60
+                start_seconds = start_time % 60
+                text = entry['text']
+                transcript_text += f"[{start_minutes}:{start_seconds:02d}] {text}\n"
+            
+        except (TranscriptsDisabled, NoTranscriptFound) as e:
+            transcript_text = "No transcript available for this video."
+        except Exception as e:
+            transcript_text = f"Error retrieving transcript: {str(e)}"
+        
+        # Compile all information
+        result = f"Video Title: {video_title}\n"
+        result += f"Creator: {video_author}\n"
+        result += f"Length: {length_formatted}\n"
+        result += f"Views: {video_views:,}\n"
+        if video_publish_date:
+            result += f"Published: {video_publish_date.strftime('%Y-%m-%d')}\n"
+        result += f"URL: {url}\n\n"
+        
+        # Add description (truncated if too long)
+        if video_description:
+            if len(video_description) > 500:
+                description_preview = video_description[:500] + "..."
+            else:
+                description_preview = video_description
+            result += f"Description:\n{description_preview}\n\n"
+        
+        # Add transcript
+        result += "Transcript:\n"
+        
+        # Check if transcript is too long (over 5000 chars) and truncate if needed
+        if len(transcript_text) > 5000:
+            result += transcript_text[:5000] + "...\n[Transcript truncated due to length]\n"
+        else:
+            result += transcript_text + "\n"
+        
+        return result
+        
+    except Exception as e:
+        return f"Error processing YouTube video: {str(e)}"
+
+def extract_youtube_video_id(url: str) -> Optional[str]:
+    """
+    Extract the YouTube video ID from various URL formats.
+    
+    Args:
+        url: A YouTube URL
+        
+    Returns:
+        The video ID or None if it cannot be extracted
+    """
+    # Various YouTube URL patterns
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/|youtube\.com/e/|youtube\.com/watch\?.*v=|youtube\.com/watch\?.*&v=)([^&?/\s]{11})',
+        r'youtube\.com/shorts/([^&?/\s]{11})',
+        r'youtube\.com/live/([^&?/\s]{11})'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
+
 # Define the tools configuration
 tools_config = [
     {
@@ -621,5 +755,10 @@ tools_config = [
         "name": "excel_to_text",
         "description": "Read an Excel file and return a Markdown table. You can provide either the path to an Excel file or use a file attachment. For attachments, provide a base64-encoded string of the file content and a filename.",
         "func": excel_to_text
+    },
+    {
+        "name": "process_youtube_video",
+        "description": "Extract and process information from a YouTube video including its transcript, title, author, and other metadata. Provide a URL in the format: {\"url\": \"https://www.youtube.com/watch?v=VIDEO_ID\", \"summarize\": true}",
+        "func": process_youtube_video
     }
 ] 
