@@ -227,23 +227,25 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             
             with gr.Row():
                 with gr.Column(scale=4):
-                    chatbot = gr.Chatbot(label="Conversation", height=300)
+                    chatbot = gr.Chatbot(
+                        label="Conversation", 
+                        height=300,
+                        type="messages"
+                    )
                     with gr.Row():
                         question_input = gr.Textbox(
                             label="Ask a question",
                             placeholder="Type your question here...",
-                            lines=3,
-                            max_lines=5,
+                            lines=6,
+                            max_lines=6,
                             container=True,
-                            scale=3,
-                            height=150
+                            scale=3
                         )
                         file_upload = gr.File(
                             label="Upload Files",
                             file_types=ALLOWED_FILE_EXTENSIONS,
                             file_count="multiple",
-                            scale=1,
-                            height=150
+                            scale=1
                         )
                     with gr.Row():
                         submit_btn = gr.Button("Send", variant="primary")
