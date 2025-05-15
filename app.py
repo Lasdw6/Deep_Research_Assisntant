@@ -236,8 +236,8 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                         question_input = gr.Textbox(
                             label="Ask a question",
                             placeholder="Type your question here...",
-                            lines=6,
-                            max_lines=6,
+                            lines=8,
+                            max_lines=8,
                             container=True,
                             scale=3
                         )
