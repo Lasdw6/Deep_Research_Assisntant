@@ -18,5 +18,4 @@ whisper
 yt_dlp
 wikipedia
 arxiv
-tavily
 openai
