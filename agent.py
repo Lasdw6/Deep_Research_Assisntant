@@ -30,7 +30,9 @@ from tools import (
     save_attachment_to_tempfile,
     process_youtube_video,
     transcribe_audio,
-    extract_python_code_from_complex_input
+    extract_python_code_from_complex_input,
+    process_image,
+    read_file
 )
 
 load_dotenv()
@@ -60,7 +62,7 @@ The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
 
 The only values that should be in the "action" field are:
-python_code: Execute Python code. Use this tool to calculate math problems. args: {"code": {"type": "string"}}
+python_code: Execute Python code. Use this tool to calculate math problems. make sure to use prints to be able to view the final result. args: {"code": {"type": "string"}}
 wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
 tavily_search: Search the web using Tavily for more comprehensive results. Optionally specify search_depth as 'basic' or 'comprehensive', args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
 arxiv_search: Search ArXiv for scientific papers. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
@@ -69,6 +71,8 @@ supabase_operation: Perform database operations, args: {"operation_type": {"type
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
 process_youtube_video: Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
 transcribe_audio: Transcribe audio files using OpenAI Whisper, args: {"audio_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "language": {"type": "string", "optional": true}}
+process_image: Process and analyze image files, args: {"image_path": {"type": "string"}, "image_url": {"type": "string", "optional": true}, "file_content": {"type": "string", "optional": true}, "analyze_content": {"type": "boolean", "optional": true}}
+read_file: Read and display the contents of a text file, args: {"file_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "line_start": {"type": "integer", "optional": true}, "line_end": {"type": "integer", "optional": true}}
 
 If you get stuck, try using another tool. For example if you are unable to find relevant information from the tavily_search tool, try using the wikipedia_search tool and vice versa.
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
@@ -86,6 +90,13 @@ or
 {
   "action": "process_youtube_video",
   "action_input": {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "summarize": true}
+}
+```
+or
+```json
+{
+  "action": "process_image",
+  "action_input": {"image_path": "example.jpg", "analyze_content": true}
 }
 ```
 
@@ -830,17 +841,20 @@ def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
         sheet_name = action_input.get("sheet_name")
         
         # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input:
+        if "file_content" in action_input and action_input["file_content"]:
             try:
                 file_content = base64.b64decode(action_input["file_content"])
                 print(f"Decoded attached file content, size: {len(file_content)} bytes")
             except Exception as e:
-                print(f"Error decoding file content: {e}")
+                print(f"Error decoding file content from action_input: {e}")
+        
         # Check if we should use a file from the attachments dictionary
-        elif excel_path and "attachments" in state and excel_path in state["attachments"]:
+        if not file_content and excel_path and "attachments" in state and excel_path in state["attachments"]:
             try:
-                file_content = base64.b64decode(state["attachments"][excel_path])
-                print(f"Using attachment '{excel_path}' from state, size: {len(file_content)} bytes")
+                attachment_data = state["attachments"][excel_path]
+                if attachment_data:  # Make sure it's not empty
+                    file_content = base64.b64decode(attachment_data)
+                    print(f"Using attachment '{excel_path}' from state, size: {len(file_content)} bytes")
             except Exception as e:
                 print(f"Error using attachment {excel_path}: {e}")
     
@@ -849,8 +863,17 @@ def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
     # Safety check
     if not excel_path and not file_content:
         result = "Error: Either Excel file path or file content is required"
+    elif not file_content:
+        # If we have a path but no content, check if it's a local file that exists
+        local_file_path = Path(excel_path).expanduser().resolve()
+        if local_file_path.is_file():
+            # Local file exists, use it directly
+            result = excel_to_text(str(local_file_path), sheet_name, None)
+        else:
+            # No file content and path doesn't exist as a local file
+            result = f"Error: Excel file not found at {local_file_path} and no attachment data available"
     else:
-        # Call the Excel to text function
+        # We have file content, use it
         result = excel_to_text(excel_path, sheet_name, file_content)
     
     print(f"Excel to text result length: {len(result)}")
@@ -903,11 +926,14 @@ def process_youtube_video_node(state: AgentState) -> Dict[str, Any]:
     # Safety check - don't run with empty URL
     if not url:
         result = "Error: No URL provided. Please provide a valid YouTube URL."
+    elif not url.startswith(("http://", "https://")) or not ("youtube.com" in url or "youtu.be" in url):
+        result = f"Error: Invalid YouTube URL format: {url}. Please provide a valid URL starting with http:// or https:// and containing youtube.com or youtu.be."
     else:
-        # Import the function dynamically to ensure we're using the latest version
-        from tools import process_youtube_video
         # Call the YouTube processing function
-        result = process_youtube_video(url, summarize)
+        try:
+            result = process_youtube_video(url, summarize)
+        except Exception as e:
+            result = f"Error processing YouTube video: {str(e)}\n\nThis could be due to:\n- The video is private or has been removed\n- Network connectivity issues\n- YouTube API changes\n- Rate limiting"
     
     print(f"YouTube processing result length: {len(result)}")
     
@@ -948,30 +974,209 @@ def transcribe_audio_node(state: AgentState) -> Dict[str, Any]:
         language = action_input.get("language")
         
         # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input:
+        if "file_content" in action_input and action_input["file_content"]:
             try:
                 file_content = base64.b64decode(action_input["file_content"])
                 print(f"Decoded attached audio file content, size: {len(file_content)} bytes")
             except Exception as e:
-                print(f"Error decoding file content: {e}")
+                print(f"Error decoding file content from action_input: {e}")
+        
         # Check if we should use a file from the attachments dictionary
-        elif audio_path and "attachments" in state and audio_path in state["attachments"]:
+        if not file_content and audio_path and "attachments" in state and audio_path in state["attachments"]:
             try:
-                file_content = base64.b64decode(state["attachments"][audio_path])
-                print(f"Using attachment '{audio_path}' from state, size: {len(file_content)} bytes")
+                attachment_data = state["attachments"][audio_path]
+                if attachment_data:  # Make sure it's not empty
+                    file_content = base64.b64decode(attachment_data)
+                    print(f"Using attachment '{audio_path}' from state, size: {len(file_content)} bytes")
             except Exception as e:
                 print(f"Error using attachment {audio_path}: {e}")
     
     print(f"Audio transcription: path={audio_path}, language={language or 'auto-detect'}, has_attachment={file_content is not None}")
     
     # Safety check
-    if not audio_path and not file_content:
-        result = "Error: Either audio file path or file content is required"
+    if not audio_path:
+        result = "Error: Audio file path is required"
+    elif not file_content:
+        # If we have a path but no content, check if it's a local file that exists
+        local_file_path = Path(audio_path).expanduser().resolve()
+        if local_file_path.is_file():
+            # Local file exists, use it directly
+            result = transcribe_audio(str(local_file_path), None, language)
+        else:
+            # No file content and path doesn't exist as a local file
+            result = f"Error: Audio file not found at {local_file_path} and no attachment data available"
     else:
-        # Call the audio transcription function
+        # We have file content, use it
         result = transcribe_audio(audio_path, file_content, language)
     
     print(f"Audio transcription result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
+def process_image_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes image analysis requests."""
+    print("Image Processing Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Image processing action_input: {action_input}")
+    
+    # Extract required parameters
+    image_path = ""
+    image_url = None
+    analyze_content = True  # Default to true
+    file_content = None
+    
+    if isinstance(action_input, dict):
+        image_path = action_input.get("image_path", "")
+        image_url = action_input.get("image_url")
+        
+        # Check if analyze_content parameter exists and is a boolean
+        if "analyze_content" in action_input:
+            try:
+                analyze_content = bool(action_input["analyze_content"])
+            except:
+                print("Invalid analyze_content parameter, using default (True)")
+        
+        # Check if there's attached file content (base64 encoded) directly in the action_input
+        if "file_content" in action_input and action_input["file_content"]:
+            try:
+                file_content = base64.b64decode(action_input["file_content"])
+                print(f"Decoded attached image file content, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error decoding file content from action_input: {e}")
+        
+        # Check if we should use a file from the attachments dictionary
+        if not file_content and image_path and "attachments" in state and image_path in state["attachments"]:
+            try:
+                attachment_data = state["attachments"][image_path]
+                if attachment_data:  # Make sure it's not empty
+                    file_content = base64.b64decode(attachment_data)
+                    print(f"Using attachment '{image_path}' from state, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error using attachment {image_path}: {e}")
+    
+    print(f"Image processing: path={image_path}, url={image_url or 'None'}, analyze_content={analyze_content}, has_attachment={file_content is not None}")
+    
+    # Safety check
+    if not image_path and not image_url and not file_content:
+        result = "Error: Either image path, image URL, or file content is required"
+    elif not file_content and not image_url:
+        # If we have a path but no content, check if it's a local file that exists
+        local_file_path = Path(image_path).expanduser().resolve()
+        if local_file_path.is_file():
+            # Local file exists, use it directly
+            result = process_image(str(local_file_path), image_url, None, analyze_content)
+        else:
+            # No file content and path doesn't exist as a local file
+            result = f"Error: Image file not found at {local_file_path} and no attachment data available"
+    else:
+        # We have file content or URL, use it
+        result = process_image(image_path, image_url, file_content, analyze_content)
+    
+    print(f"Image processing result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
+def read_file_node(state: AgentState) -> Dict[str, Any]:
+    """Node that reads text file contents."""
+    print("File Reading Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"File reading action_input: {action_input}")
+    
+    # Extract required parameters
+    file_path = ""
+    line_start = None
+    line_end = None
+    file_content = None
+    
+    if isinstance(action_input, dict):
+        file_path = action_input.get("file_path", "")
+        
+        # Check if line range parameters exist
+        if "line_start" in action_input:
+            try:
+                line_start = int(action_input["line_start"])
+            except:
+                print("Invalid line_start parameter, using default (None)")
+        
+        if "line_end" in action_input:
+            try:
+                line_end = int(action_input["line_end"])
+            except:
+                print("Invalid line_end parameter, using default (None)")
+        
+        # Check if there's attached file content (base64 encoded) directly in the action_input
+        if "file_content" in action_input and action_input["file_content"]:
+            try:
+                file_content = base64.b64decode(action_input["file_content"])
+                print(f"Decoded attached file content, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error decoding file content from action_input: {e}")
+        
+        # Check if we should use a file from the attachments dictionary
+        if not file_content and file_path and "attachments" in state and file_path in state["attachments"]:
+            try:
+                attachment_data = state["attachments"][file_path]
+                if attachment_data:  # Make sure it's not empty
+                    file_content = base64.b64decode(attachment_data)
+                    print(f"Using attachment '{file_path}' from state, size: {len(file_content)} bytes")
+            except Exception as e:
+                print(f"Error using attachment {file_path}: {e}")
+    
+    print(f"File reading: path={file_path}, line_range={line_start}-{line_end if line_end else 'end'}, has_attachment={file_content is not None}")
+    
+    # Safety check
+    if not file_path:
+        result = "Error: File path is required"
+    elif not file_content:
+        # If we have a path but no content, check if it's a local file that exists
+        local_file_path = Path(file_path).expanduser().resolve()
+        if local_file_path.is_file():
+            # Local file exists, use it directly
+            result = read_file(str(local_file_path), None, line_start, line_end)
+        else:
+            # No file content and path doesn't exist as a local file
+            result = f"Error: File not found at {local_file_path} and no attachment data available"
+    else:
+        # We have file content, use it
+        result = read_file(file_path, file_content, line_start, line_end)
+    
+    print(f"File reading result length: {len(result)}")
     
     # Format the observation to continue the ReAct cycle
     tool_message = AIMessage(
@@ -1017,6 +1222,10 @@ def router(state: AgentState) -> str:
         return "process_youtube_video"
     elif tool == "transcribe_audio":
         return "transcribe_audio"
+    elif tool == "process_image":
+        return "process_image"
+    elif tool == "read_file":
+        return "read_file"
     else:
         return "end"
 
@@ -1036,6 +1245,8 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("excel_to_text", excel_to_text_node)
     builder.add_node("process_youtube_video", process_youtube_video_node)
     builder.add_node("transcribe_audio", transcribe_audio_node)
+    builder.add_node("process_image", process_image_node)
+    builder.add_node("read_file", read_file_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -1069,6 +1280,8 @@ def create_agent_graph() -> StateGraph:
             "excel_to_text": "excel_to_text",
             "process_youtube_video": "process_youtube_video",
             "transcribe_audio": "transcribe_audio",
+            "process_image": "process_image",
+            "read_file": "read_file",
             "end": END
         }
     )
@@ -1083,6 +1296,8 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("excel_to_text", "assistant")
     builder.add_edge("process_youtube_video", "assistant")
     builder.add_edge("transcribe_audio", "assistant")
+    builder.add_edge("process_image", "assistant")
+    builder.add_edge("read_file", "assistant")
     
     # Compile the graph
     return builder.compile()
@@ -1145,13 +1360,14 @@ class TurboNerd:
             # Extract the final message and return just the final answer
             final_message = result["messages"][-1].content
             print("Final message: ", final_message)
+            
             # Extract just the final answer part
             if "Final Answer:" in final_message:
                 final_answer = final_message.split("Final Answer:", 1)[1].strip()
                 return final_answer
             
             return final_message
-            
+        
         except Exception as e:
             print(f"Error processing question: {str(e)}")
             # Otherwise return the error

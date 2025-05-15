@@ -15,3 +15,9 @@ __pycache__/*
 *.pyo
 *.pyd
 
+TEMPP/*
+TEMPP/chess.png
+TEMPP/audio1.mp3
+TEMPP/code.py
+TEMPP/audio2.mp3
+TEMPP/excel.xlsx

@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional, Union, List
 from pathlib import Path
@@ -21,6 +22,11 @@ import openai
 import re
 import pytube
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+
+# Add new imports for image processing
+from PIL import Image, ExifTags, ImageStat
+import numpy as np
+from io import BytesIO
 
 load_dotenv()
 
@@ -129,63 +135,73 @@ def extract_python_code_from_complex_input(input_text):
     # If all else fails, return the original input
     return input_text
 
+def test_python_execution(code_str):
+    """A simplified function to test Python code execution and diagnose issues."""
+    import io
+    import sys
+    import random
+    import time
+    from contextlib import redirect_stdout
+    
+    # Create a simple globals environment
+    test_globals = {
+        'random': random,
+        'randint': random.randint,
+        'time': time,
+        'sleep': time.sleep,
+        '__name__': '__main__',
+        '__builtins__': __builtins__  # Use all built-ins for simplicity
+    }
+    
+    # Create an empty locals dict
+    test_locals = {}
+    
+    # Capture output
+    output = io.StringIO()
+    
+    # Execute with detailed error reporting
+    with redirect_stdout(output):
+        print(f"Executing code:\n{code_str}")
+        try:
+            # Try compilation first to catch syntax errors
+            compiled_code = compile(code_str, '<string>', 'exec')
+            print("Compilation successful!")
+            
+            # Then try execution
+            try:
+                exec(compiled_code, test_globals, test_locals)
+                print("Execution successful!")
+                
+                # Check what variables were defined
+                print(f"Defined locals: {list(test_locals.keys())}")
+                
+                # If the code defines a main block, try to call a bit of it directly
+                if "__name__" in test_globals and test_globals["__name__"] == "__main__":
+                    print("Running main block...")
+                    if "Okay" in test_locals and "keep_trying" in test_locals:
+                        print("Found Okay and keep_trying functions, attempting to call...")
+                        try:
+                            go = test_locals["Okay"]()
+                            result = test_locals["keep_trying"](go)
+                            print(f"Result from keep_trying: {result}")
+                        except Exception as e:
+                            print(f"Error in main execution: {type(e).__name__}: {str(e)}")
+            except Exception as e:
+                print(f"Runtime error: {type(e).__name__}: {str(e)}")
+                # Get traceback info
+                import traceback
+                traceback.print_exc(file=output)
+        except SyntaxError as e:
+            print(f"Syntax error: {str(e)}")
+    
+    # Return the captured output
+    return output.getvalue()
 def run_python_code(code: str):
-    """Execute Python code safely using exec() instead of subprocess."""
+    """Execute Python code safely using an external Python process."""
     try:
         # Pre-process code to handle complex nested structures
-        # This is our most aggressive approach to extract the actual code
         code = extract_python_code_from_complex_input(code)
         
-        # First, check if the input is a nested JSON structure
-        if code.strip().startswith('{') and ('"action"' in code or "'action'" in code):
-            try:
-                # Common issue: escaped quotes causing JSON parse errors
-                # Pre-process to handle common escaping problems
-                preprocessed_code = code
-                
-                # Handle the specific case we're seeing with nested escaped quotes
-                import re
-                
-                # Search for nested code pattern - this is a more direct approach
-                code_pattern = re.search(r'"code"\s*:\s*"(.*?)"\s*\}\s*\}\s*\}', code, re.DOTALL)
-                if code_pattern:
-                    extracted_code = code_pattern.group(1)
-                    # Unescape the extracted code
-                    extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-                    code = extracted_code
-                    print(f"Extracted code using regex pattern: {code[:100]}")
-                else:
-                    # Try JSON parsing approach if regex fails
-                    import json
-                    try:
-                        # First try direct parsing
-                        parsed_json = json.loads(code)
-                        
-                        # Check if this is an action structure with embedded code
-                        if 'action' in parsed_json and 'action_input' in parsed_json:
-                            if isinstance(parsed_json['action_input'], dict) and 'code' in parsed_json['action_input']:
-                                # Extract the actual code from the nested structure
-                                code = parsed_json['action_input']['code']
-                                print(f"Extracted code using JSON parsing: {code[:100]}")
-                            elif isinstance(parsed_json['action_input'], str):
-                                # Try to parse the action_input as JSON if it's a string
-                                try:
-                                    inner_input = json.loads(parsed_json['action_input'])
-                                    if isinstance(inner_input, dict) and 'code' in inner_input:
-                                        code = inner_input['code']
-                                        print(f"Extracted nested code: {code[:100]}")
-                                except:
-                                    # If parsing fails, assume the action_input itself is the code
-                                    code = parsed_json['action_input']
-                                    print(f"Using action_input as code: {code[:100]}")
-                    except json.JSONDecodeError:
-                        # Direct parsing failed, try alternative approaches
-                        print("JSON parsing failed, trying alternative approaches")
-            except Exception as e:
-                print(f"Error during code extraction: {str(e)}")
-                # If JSON parsing fails, proceed with the original code
-                pass
-                
         print(f"Final code to execute: {code[:100]}...")
         
         # Check for potentially dangerous operations
@@ -206,7 +222,10 @@ def run_python_code(code: str):
             "import re", "import json", "import csv", "import numpy",
             "import pandas", "from math import", "from datetime import",
             "from statistics import", "from collections import",
-            "from itertools import"
+            "from itertools import", "from random import", "from random import randint",
+            "from random import choice", "from random import sample", "from random import random",
+            "from random import uniform", "from random import shuffle", "import time",
+            "from time import sleep"
         }
         
         # Check for dangerous operations
@@ -225,102 +244,20 @@ def run_python_code(code: str):
                 if not is_safe:
                     return f"Error: Code contains potentially unsafe import: {line}"
         
-        # Capture stdout to get print output
-        import io
-        import sys
-        from contextlib import redirect_stdout
+        # Direct execution
+        # Use our test_python_execution function which has more robust error handling
+        test_result = test_python_execution(code)
         
-        # Create a restricted globals environment
-        restricted_globals = {
-            '__builtins__': {
-                'abs': abs, 'all': all, 'any': any, 'bin': bin, 'bool': bool,
-                'chr': chr, 'dict': dict, 'dir': dir, 'divmod': divmod,
-                'enumerate': enumerate, 'filter': filter, 'float': float,
-                'format': format, 'hex': hex, 'int': int, 'len': len,
-                'list': list, 'map': map, 'max': max, 'min': min, 'oct': oct,
-                'ord': ord, 'pow': pow, 'print': print, 'range': range,
-                'reversed': reversed, 'round': round, 'set': set, 'slice': slice,
-                'sorted': sorted, 'str': str, 'sum': sum, 'tuple': tuple,
-                'type': type, 'zip': zip,
-            }
-        }
-        
-        # Allow safe modules
-        import math
-        import datetime
-        import random
-        import statistics
-        import collections
-        import itertools
-        import re
-        import json
-        import csv
-        
-        restricted_globals['math'] = math
-        restricted_globals['datetime'] = datetime
-        restricted_globals['random'] = random
-        restricted_globals['statistics'] = statistics
-        restricted_globals['collections'] = collections
-        restricted_globals['itertools'] = itertools
-        restricted_globals['re'] = re
-        restricted_globals['json'] = json
-        restricted_globals['csv'] = csv
-        
-        # Try to import numpy and pandas if available
-        try:
-            import numpy as np
-            restricted_globals['numpy'] = np
-            restricted_globals['np'] = np
-        except ImportError:
-            pass
+        # Extract just the relevant output from the test execution result
+        # Remove diagnostic information that might confuse users
+        cleaned_output = []
+        for line in test_result.split('\n'):
+            # Skip diagnostic lines
+            if line.startswith("Executing code:") or line.startswith("Compilation successful") or line.startswith("Execution successful") or "Defined locals:" in line:
+                continue
+            cleaned_output.append(line)
             
-        try:
-            import pandas as pd
-            restricted_globals['pandas'] = pd
-            restricted_globals['pd'] = pd
-        except ImportError:
-            pass
-        
-        # Create local scope
-        local_scope = {}
-        
-        # Capture stdout
-        captured_output = io.StringIO()
-        
-        # Execute the entire code block at once
-        with redirect_stdout(captured_output):
-            # Try to evaluate as expression first (for simple expressions)
-            lines = code.strip().split('\n')
-            if len(lines) == 1 and not any(keyword in code for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with']):
-                try:
-                    result = eval(code, restricted_globals, local_scope)
-                    print(f"Result: {result}")
-                except:
-                    # If eval fails, use exec
-                    exec(code, restricted_globals, local_scope)
-            else:
-                # For multi-line code, execute the entire block
-                exec(code, restricted_globals, local_scope)
-        
-        # Get the captured output
-        output = captured_output.getvalue()
-        
-        if output.strip():
-            return output.strip()
-        else:
-            # If no output, check if there's a result from the last expression
-            lines = code.strip().split('\n')
-            last_line = lines[-1].strip() if lines else ""
-            
-            # If the last line looks like an expression, try to evaluate it
-            if last_line and not any(keyword in last_line for keyword in ['=', 'import', 'from', 'def', 'class', 'if', 'for', 'while', 'try', 'with', 'print']):
-                try:
-                    result = eval(last_line, restricted_globals, local_scope)
-                    return f"Result: {result}"
-                except:
-                    pass
-                    
-            return "Code executed successfully with no output."
+        return '\n'.join(cleaned_output)
                 
     except SyntaxError as e:
         return f"Syntax Error: {str(e)}"
@@ -330,7 +267,6 @@ def run_python_code(code: str):
         return f"Zero Division Error: {str(e)}"
     except Exception as e:
         return f"Error executing code: {str(e)}"
-
 def scrape_webpage(url: str) -> str:
     """
     Safely scrape content from a specified URL.
@@ -961,6 +897,9 @@ def transcribe_audio(audio_path: str, file_content: Optional[bytes] = None, lang
     Returns:
         Transcribed text from the audio file
     """
+    temp_path = None
+    audio_file = None
+    
     try:
         # Check for OpenAI API key
         openai_api_key = os.environ.get("OPENAI_API_KEY")
@@ -971,7 +910,6 @@ def transcribe_audio(audio_path: str, file_content: Optional[bytes] = None, lang
         openai.api_key = openai_api_key
         
         # Handle file attachment case
-        temp_path = None
         if file_content:
             # Determine file extension from audio_path or default to .mp3
             if '.' in audio_path:
@@ -994,61 +932,362 @@ def transcribe_audio(audio_path: str, file_content: Optional[bytes] = None, lang
         
         print(f"Transcribing audio file: {file_path}")
         
-        # Open the audio file and transcribe using Whisper
-        with open(file_path, "rb") as audio_file:
-            # Prepare the transcription request
-            transcript_params = {
-                "model": "whisper-1",
-                "file": audio_file
-            }
-            
-            # Add language parameter if specified
-            if language:
-                transcript_params["language"] = language
-            
-            # Call OpenAI Whisper API
-            response = openai.Audio.transcribe(**transcript_params)
+        # Initialize client first
+        client = openai.OpenAI(api_key=openai_api_key)
+        
+        # Read the file content into memory - avoids file handle issues
+        with open(file_path, "rb") as f:
+            audio_data = f.read()
+        
+        # Create a file-like object from the data
+        audio_file = BytesIO(audio_data)
+        audio_file.name = os.path.basename(file_path)  # OpenAI needs a name
+        
+        # Call OpenAI Whisper API with the file-like object
+        try:
+            response = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language=language
+            )
             
             # Extract the transcribed text
-            transcribed_text = response.get("text", "")
+            transcribed_text = response.text
             
             if not transcribed_text:
                 return "Error: No transcription was returned from Whisper API"
             
-            # Clean up temporary file if we created one
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-                print(f"Deleted temporary audio file: {temp_path}")
-            
             # Format the result
             result = f"Audio Transcription:\n\n{transcribed_text}"
             
-            # Add metadata if available
-            if hasattr(response, 'duration'):
-                result = f"Duration: {response.duration} seconds\n" + result
-            
             return result
             
-    except openai.error.InvalidRequestError as e:
-        # Clean up temporary file in case of error
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
-        return f"Error: Invalid request to Whisper API - {str(e)}"
-    except openai.error.RateLimitError as e:
-        # Clean up temporary file in case of error
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
-        return f"Error: Rate limit exceeded for Whisper API - {str(e)}"
-    except openai.error.APIError as e:
-        # Clean up temporary file in case of error
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
-        return f"Error: OpenAI API error - {str(e)}"
+        except openai.BadRequestError as e:
+            return f"Error: Invalid request to Whisper API - {str(e)}"
+        except openai.RateLimitError as e:
+            return f"Error: Rate limit exceeded for Whisper API - {str(e)}"
+        except openai.APIError as e:
+            return f"Error: OpenAI API error - {str(e)}"
+        
     except Exception as e:
-        # Clean up temporary file in case of error
-        if temp_path and 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
         return f"Error transcribing audio: {str(e)}"
+    finally:
+        # Clean up resources
+        if audio_file is not None:
+            try:
+                audio_file.close()
+            except:
+                pass
+                
+        # Clean up the temporary file if it exists
+        if temp_path and os.path.exists(temp_path):
+            try:
+                # Wait a moment to ensure file is not in use
+                import time
+                time.sleep(0.5)
+                os.unlink(temp_path)
+                print(f"Deleted temporary audio file: {temp_path}")
+            except Exception as e:
+                print(f"Warning: Could not delete temporary file {temp_path}: {e}")
+
+def process_image(image_path: str, image_url: Optional[str] = None, file_content: Optional[bytes] = None, analyze_content: bool = True) -> str:
+    """
+    Process an image file to extract information and content.
+    
+    Args:
+        image_path: Path to the image file or filename for attachments
+        image_url: Optional URL to fetch the image from instead of a local path
+        file_content: Optional binary content of the file if provided as an attachment
+        analyze_content: Whether to analyze the image content using vision AI (if available)
+        
+    Returns:
+        Information about the image including dimensions, format, and content description
+    """
+    temp_path = None
+    image_file = None
+    
+    try:
+        # Import Pillow for image processing
+        from PIL import Image, ExifTags, ImageStat
+        import numpy as np
+        from io import BytesIO
+        
+        # Handle image from URL
+        if image_url:
+            try:
+                # Validate URL
+                parsed_url = urlparse(image_url)
+                if not parsed_url.scheme or not parsed_url.netloc:
+                    return f"Error: Invalid URL format: {image_url}. Please provide a valid URL."
+                
+                print(f"Downloading image from URL: {image_url}")
+                response = requests.get(image_url, timeout=10)
+                response.raise_for_status()
+                
+                # Create BytesIO object from content
+                image_data = BytesIO(response.content)
+                image = Image.open(image_data)
+                image_source = f"URL: {image_url}"
+            except requests.exceptions.RequestException as e:
+                return f"Error downloading image from URL: {str(e)}"
+            except Exception as e:
+                return f"Error processing image from URL: {str(e)}"
+                
+        # Handle file attachment case
+        elif file_content:
+            try:
+                # Determine file extension from image_path
+                if '.' in image_path:
+                    extension = '.' + image_path.split('.')[-1].lower()
+                else:
+                    extension = '.png'  # Default to PNG if no extension
+                
+                # Create a temporary file to save the attachment
+                with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_path = temp_file.name
+                
+                print(f"Saved attached image file to temporary location: {temp_path}")
+                image = Image.open(temp_path)
+                image_source = f"Uploaded file: {image_path}"
+            except Exception as e:
+                return f"Error processing attached image: {str(e)}"
+        else:
+            # Regular file path case
+            try:
+                file_path = Path(image_path).expanduser().resolve()
+                if not file_path.is_file():
+                    return f"Error: Image file not found at {file_path}"
+                
+                image = Image.open(file_path)
+                image_source = f"Local file: {file_path}"
+            except Exception as e:
+                return f"Error opening image file: {str(e)}"
+        
+        # Basic image information
+        width, height = image.size
+        image_format = image.format or "Unknown"
+        image_mode = image.mode  # RGB, RGBA, L (grayscale), etc.
+        
+        # Extract EXIF data if available
+        exif_data = {}
+        if hasattr(image, '_getexif') and image._getexif():
+            exif = {
+                ExifTags.TAGS[k]: v
+                for k, v in image._getexif().items()
+                if k in ExifTags.TAGS
+            }
+            
+            # Filter for useful EXIF tags
+            useful_tags = ['DateTimeOriginal', 'Make', 'Model', 'ExposureTime', 'FNumber', 'ISOSpeedRatings']
+            exif_data = {k: v for k, v in exif.items() if k in useful_tags}
+        
+        # Calculate basic statistics
+        if image_mode in ['RGB', 'RGBA', 'L']:
+            try:
+                stat = ImageStat.Stat(image)
+                mean_values = stat.mean
+                
+                # Calculate average color for RGB images
+                if image_mode in ['RGB', 'RGBA']:
+                    avg_color = f"R: {mean_values[0]:.1f}, G: {mean_values[1]:.1f}, B: {mean_values[2]:.1f}"
+                else:  # For grayscale
+                    avg_color = f"Grayscale Intensity: {mean_values[0]:.1f}"
+                    
+                # Calculate image brightness (simplified)
+                if image_mode in ['RGB', 'RGBA']:
+                    brightness = 0.299 * mean_values[0] + 0.587 * mean_values[1] + 0.114 * mean_values[2]
+                    brightness_description = "Dark" if brightness < 64 else "Dim" if brightness < 128 else "Normal" if brightness < 192 else "Bright"
+                else:
+                    brightness = mean_values[0]
+                    brightness_description = "Dark" if brightness < 64 else "Dim" if brightness < 128 else "Normal" if brightness < 192 else "Bright"
+            except Exception as e:
+                print(f"Error calculating image statistics: {e}")
+                avg_color = "Could not calculate"
+                brightness_description = "Unknown"
+        else:
+            avg_color = "Not applicable for this image mode"
+            brightness_description = "Unknown"
+        
+        # Image content analysis using OpenAI Vision API if available
+        content_description = "Image content analysis not performed"
+        if analyze_content:
+            try:
+                # Check for OpenAI API key
+                openai_api_key = os.environ.get("OPENAI_API_KEY")
+                if openai_api_key:
+                    # Convert image to base64 for OpenAI API
+                    buffered = BytesIO()
+                    image.save(buffered, format=image_format if image_format != "Unknown" else "PNG")
+                    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    
+                    # Initialize OpenAI client
+                    client = openai.OpenAI(api_key=openai_api_key)
+                    
+                    # Call Vision API
+                    response = client.chat.completions.create(
+                        model="gpt-4.1-nano",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "Describe this image in detail, including the main subject, colors, setting, and any notable features. Be factual and objective. For a chess posistion, look at the board and describe the position of the pieces accurately.Go step by step and be very detailed about the position of the pieces."},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/{image_format.lower() if image_format != 'Unknown' else 'png'};base64,{img_str}"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        max_tokens=300
+                    )
+                    
+                    # Extract the analysis
+                    content_description = response.choices[0].message.content
+                else:
+                    content_description = "OpenAI API key not found. To analyze image content, set the OPENAI_API_KEY environment variable."
+            except Exception as e:
+                content_description = f"Error analyzing image content: {str(e)}"
+        
+        # Format the result
+        result = f"Image Information:\n\n"
+        result += f"Source: {image_source}\n"
+        result += f"Dimensions: {width} x {height} pixels\n"
+        result += f"Format: {image_format}\n"
+        result += f"Mode: {image_mode}\n"
+        result += f"Average Color: {avg_color}\n"
+        result += f"Brightness: {brightness_description}\n"
+        
+        # Add EXIF data if available
+        if exif_data:
+            result += "\nEXIF Data:\n"
+            for key, value in exif_data.items():
+                result += f"- {key}: {value}\n"
+        
+        # Add content description
+        if analyze_content:
+            result += f"\nContent Analysis:\n{content_description}\n"
+        
+        # Clean up resources
+        image.close()
+        print(result)
+        return result
+        
+    except Exception as e:
+        return f"Error processing image: {str(e)}"
+    finally:
+        # Clean up the temporary file if it exists
+        if temp_path and os.path.exists(temp_path):
+            try:
+                import time
+                time.sleep(0.5)  # Wait a moment to ensure file is not in use
+                os.unlink(temp_path)
+                print(f"Deleted temporary image file: {temp_path}")
+            except Exception as e:
+                print(f"Warning: Could not delete temporary file {temp_path}: {e}")
+                # Non-fatal error, don't propagate exception
+
+def read_file(file_path: str, file_content: Optional[bytes] = None, line_start: Optional[int] = None, line_end: Optional[int] = None) -> str:
+    """
+    Read and return the contents of a text file (.py, .txt, etc.).
+    
+    Args:
+        file_path: Path to the file or filename for attachments
+        file_content: Optional binary content of the file if provided as an attachment
+        line_start: Optional starting line number (1-indexed) to read from
+        line_end: Optional ending line number (1-indexed) to read to
+        
+    Returns:
+        The content of the file as a string, optionally limited to specified line range
+    """
+    temp_path = None
+    
+    try:
+        # Handle file attachment case
+        if file_content:
+            try:
+                # Determine file extension from file_path if available
+                if '.' in file_path:
+                    extension = '.' + file_path.split('.')[-1].lower()
+                else:
+                    extension = '.txt'  # Default to .txt if no extension
+                
+                # Create a temporary file to save the attachment
+                with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_path = temp_file.name
+                
+                print(f"Saved attached file to temporary location: {temp_path}")
+                file_to_read = temp_path
+                file_source = f"Uploaded file: {file_path}"
+            except Exception as e:
+                return f"Error processing attached file: {str(e)}"
+        else:
+            # Regular file path case
+            try:
+                file_to_read = Path(file_path).expanduser().resolve()
+                if not file_to_read.is_file():
+                    return f"Error: File not found at {file_to_read}"
+                
+                file_source = f"Local file: {file_path}"
+            except Exception as e:
+                return f"Error accessing file path: {str(e)}"
+        
+        # Check file extension
+        file_extension = os.path.splitext(str(file_to_read))[1].lower()
+        if file_extension not in ['.py', '.txt', '.md', '.json', '.csv', '.yml', '.yaml', '.html', '.css', '.js', '.sh', '.bat', '.log']:
+            return f"Error: File type not supported for reading. Only text-based files are supported."
+        
+        # Read the file content
+        try:
+            with open(file_to_read, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+                # Handle line range if specified
+                if line_start is not None and line_end is not None:
+                    # Convert to 0-indexed
+                    line_start = max(0, line_start - 1)
+                    line_end = min(len(lines), line_end)
+                    
+                    # Validate range
+                    if line_start >= len(lines) or line_end <= 0 or line_start >= line_end:
+                        return f"Error: Invalid line range ({line_start+1}-{line_end}). File has {len(lines)} lines."
+                    
+                    selected_lines = lines[line_start:line_end]
+                    content = ''.join(selected_lines)
+                    
+                    # Add context about the selected range
+                    result = f"File Content ({file_source}, lines {line_start+1}-{line_end} of {len(lines)}):\n\n{content}"
+                else:
+                    content = ''.join(lines)
+                    line_count = len(lines)
+                    # If the file is large, add a note about its size
+                    if line_count > 1000:
+                        file_size = os.path.getsize(file_to_read) / 1024  # KB
+                        result = f"File Content ({file_source}, {line_count} lines, {file_size:.1f} KB):\n\n{content}"
+                    else:
+                        result = f"File Content ({file_source}, {line_count} lines):\n\n{content}"
+                
+                return result
+                
+        except UnicodeDecodeError:
+            return f"Error: File {file_path} appears to be a binary file and cannot be read as text."
+        except Exception as e:
+            return f"Error reading file: {str(e)}"
+    
+    finally:
+        # Clean up the temporary file if it exists
+        if temp_path and os.path.exists(temp_path):
+            try:
+                import time
+                time.sleep(0.5)  # Wait a moment to ensure file is not in use
+                os.unlink(temp_path)
+                print(f"Deleted temporary file: {temp_path}")
+            except Exception as e:
+                print(f"Warning: Could not delete temporary file {temp_path}: {e}")
+                # Non-fatal error, don't propagate exception
 
 # Define the tools configuration
 tools_config = [
@@ -1091,5 +1330,15 @@ tools_config = [
         "name": "transcribe_audio",
         "description": "Transcribe audio files (MP3, WAV, etc.) using OpenAI Whisper. You can provide either a file path or use a file attachment. For attachments, provide base64-encoded content. Optionally specify language for better accuracy.",
         "func": transcribe_audio
+    },
+    {
+        "name": "process_image",
+        "description": "Process and analyze image files. You can provide a local file path, image URL, or use a file attachment. Returns information about the image including dimensions, format, and content analysis.",
+        "func": process_image
+    },
+    {
+        "name": "read_file",
+        "description": "Read and display the contents of a text file (.py, .txt, etc.). You can provide a file path or use a file attachment. Optionally specify line range to read a specific portion of the file.",
+        "func": read_file
     }
 ] 

@@ -3,10 +3,12 @@ import gradio as gr
 import requests
 import inspect
 import pandas as pd
+import base64
 from agent import TurboNerd
 
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
+ALLOWED_FILE_EXTENSIONS = [".mp3", ".xlsx", ".py", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".md", ".json", ".csv", ".yml", ".yaml", ".html", ".css", ".js"]
 
 # --- Basic Agent Definition ---
 class BasicAgent:
@@ -21,19 +23,48 @@ class BasicAgent:
         return answer
 
 # --- Chat Interface Functions ---
-def chat_with_agent(question: str, history: list) -> tuple:
+def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     """
-    Handle chat interaction with TurboNerd agent.
+    Handle chat interaction with TurboNerd agent, now with file upload support.
     """
-    if not question.strip():
+    if not question.strip() and not file_uploads:
         return history, ""
     
     try:
         # Initialize agent
         agent = TurboNerd()
         
-        # Get response from agent
-        response = agent(question)
+        # Process uploaded files if any
+        attachments = {}
+        file_info = ""
+        
+        if file_uploads:
+            for file in file_uploads:
+                if file is not None:
+                    file_path = file.name
+                    file_name = os.path.basename(file_path)
+                    file_ext = os.path.splitext(file_name)[1].lower()
+                    
+                    # Check if file extension is allowed
+                    if file_ext in ALLOWED_FILE_EXTENSIONS:
+                        # Read file content and encode as base64
+                        with open(file_path, "rb") as f:
+                            file_content = f.read()
+                            file_content_b64 = base64.b64encode(file_content).decode("utf-8")
+                            attachments[file_name] = file_content_b64
+                            file_info += f"\nUploaded file: {file_name}"
+            
+            if file_info:
+                if question.strip():
+                    question = question + file_info
+                else:
+                    question = f"Please analyze these files: {file_info}"
+        
+        # Get response from agent with attachments if available
+        if attachments:
+            response = agent(question, attachments)
+        else:
+            response = agent(question)
         
         # Add question and response to history
         history.append([question, response])
@@ -46,7 +77,7 @@ def chat_with_agent(question: str, history: list) -> tuple:
 
 def clear_chat():
     """Clear the chat history."""
-    return [], ""
+    return [], "", None
 
 # --- Evaluation Functions ---
 def run_and_submit_all(profile: gr.OAuthProfile | None):
@@ -103,6 +134,13 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
     # 3. Run your Agent
     results_log = []
     answers_payload = []
+
+    tasks = {"cca530fc-4052-43b2-b130-b30968d8aa44":"chess.png",
+             "1f975693-876d-457b-a649-393859e79bf3":"audio1.mp3",
+             "f918266a-b3e0-4914-865d-4faa564f1aef":"code.py",
+             "99c9cc74-fdc8-46c6-8f8d-3ce2d3bfeea3":"audio2.mp3",
+             "7bd855d8-463d-4ed5-93ca-5fe35145f733":"excel.xlsx"}
+    
     print(f"Running agent on {len(questions_data)} questions...")
     for item in questions_data:
         task_id = item.get("task_id")
@@ -111,6 +149,8 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             print(f"Skipping item with missing task_id or question: {item}")
             continue
         try:
+            if task_id in tasks:
+                question_text = question_text + f"\n\nThis is the file path: {tasks[task_id]}"
             submitted_answer = agent(question_text)
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
@@ -188,12 +228,20 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             with gr.Row():
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(label="Conversation", height=300)
-                    question_input = gr.Textbox(
-                        label="Ask a question",
-                        placeholder="Type your question here...",
-                        lines=2,
-                        max_lines=5
-                    )
+                    with gr.Row():
+                        question_input = gr.Textbox(
+                            label="Ask a question",
+                            placeholder="Type your question here...",
+                            lines=2,
+                            max_lines=5,
+                            scale=3
+                        )
+                        file_upload = gr.File(
+                            label="Upload Files",
+                            file_types=ALLOWED_FILE_EXTENSIONS,
+                            file_count="multiple",
+                            scale=1
+                        )
                     with gr.Row():
                         submit_btn = gr.Button("Send", variant="primary")
                         clear_btn = gr.Button("Clear Chat", variant="secondary")
@@ -201,19 +249,19 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
-                inputs=[question_input, chatbot],
+                inputs=[question_input, file_upload, chatbot],
                 outputs=[chatbot, question_input]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
-                inputs=[question_input, chatbot],
+                inputs=[question_input, file_upload, chatbot],
                 outputs=[chatbot, question_input]
             )
             
             clear_btn.click(
                 fn=clear_chat,
-                outputs=[chatbot, question_input]
+                outputs=[chatbot, question_input, file_upload]
             )
         
         # Tab 2: Evaluation Interface

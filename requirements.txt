@@ -19,3 +19,6 @@ yt_dlp
 wikipedia
 arxiv
 openai
+openpyxl
+Pillow
+numpy
