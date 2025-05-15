@@ -150,8 +150,8 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             continue
         try:
             if task_id in tasks:
-                question_text = question_text + f"\n\nThis is the file path: {file_path + tasks[task_id]}"
-            submitted_answer = agent(question_text)
+                question_text2 = question_text + f"\n\nThis is the file path: {file_path + tasks[task_id]}"
+            submitted_answer = agent(question_text2)
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
         except Exception as e:
@@ -236,8 +236,8 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                         question_input = gr.Textbox(
                             label="Ask a question",
                             placeholder="Type your question here...",
-                            lines=8,
-                            max_lines=8,
+                            lines=9,
+                            max_lines=9,
                             container=True,
                             scale=3
                         )
