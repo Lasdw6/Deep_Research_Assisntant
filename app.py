@@ -234,7 +234,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                             placeholder="Type your question here...",
                             lines=2,
                             max_lines=5,
-                            scale=3
+                            scale=1
                         )
                         file_upload = gr.File(
                             label="Upload Files",
