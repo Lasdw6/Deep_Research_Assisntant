@@ -16,3 +16,7 @@ youtube-transcript-api
 python-dotenv
 whisper
 yt_dlp
+wikipedia
+arxiv
+tavily
+openai

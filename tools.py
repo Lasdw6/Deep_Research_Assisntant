@@ -354,7 +354,15 @@ def tavily_search(query: str, search_depth: str = "basic") -> str:
         search = TavilySearchResults(api_key=tavily_api_key)
         
         # Execute the search
-        results = search.invoke({"query": query, "search_depth": search_depth})
+        try:
+            results = search.invoke({"query": query, "search_depth": search_depth})
+        except requests.exceptions.HTTPError as http_err:
+            # Check for the specific 432 error code
+            if '432 Client Error' in str(http_err):
+                return "Error: Invalid Tavily API key or API key has expired. Please check your API key and update it if necessary."
+            else:
+                # Re-raise to be caught by the outer try-except
+                raise
         
         if not results:
             return f"No Tavily search results found for '{query}'. Try refining your search."
@@ -362,14 +370,25 @@ def tavily_search(query: str, search_depth: str = "basic") -> str:
         # Format the results
         formatted_results = f"Tavily search results for '{query}':\n\n"
         
-        for i, result in enumerate(results, 1):
-            formatted_results += f"{i}. {result.get('title', 'No title')}\n"
-            formatted_results += f"   URL: {result.get('url', 'No URL')}\n"
-            formatted_results += f"   {result.get('content', 'No content')}\n\n"
+        # Check if results is a list of dictionaries (expected structure)
+        if isinstance(results, list) and all(isinstance(item, dict) for item in results):
+            for i, result in enumerate(results, 1):
+                formatted_results += f"{i}. {result.get('title', 'No title')}\n"
+                formatted_results += f"   URL: {result.get('url', 'No URL')}\n"
+                formatted_results += f"   {result.get('content', 'No content')}\n\n"
+        # Check if results is a string
+        elif isinstance(results, str):
+            formatted_results += results
+        # Otherwise, just convert to string representation
+        else:
+            formatted_results += str(results)
             
         return formatted_results
         
     except Exception as e:
+        # Check if the exception string contains the 432 error
+        if '432 Client Error' in str(e):
+            return "Error: Invalid Tavily API key or API key has expired. Please check your API key and update it if necessary."
         return f"Error searching with Tavily: {str(e)}"
 
 def arxiv_search(query: str, max_results: int = 5) -> str:
