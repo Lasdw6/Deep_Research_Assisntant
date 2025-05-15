@@ -219,8 +219,12 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
         # Tab 2: Evaluation Interface
         with gr.TabItem(" ", id="evaluation"):
             gr.Markdown("""
-            ## Agent Evaluation Runner
+            # You found a secret page 🤫
+            ## Agent Evaluation Runner for the AI Agents course on HF :P
+            ## See my ranking (@Lasdw) on the course [here](https://huggingface.co/spaces/Lasdw/AI-Agents-Unit-4-Leaderboard)
             
+            ## Below is the original README.md for the space
+                        
             **Instructions:**
             
             1. Log in to your Hugging Face account using the button below.
