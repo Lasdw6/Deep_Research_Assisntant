@@ -149,12 +149,16 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             print(f"Skipping item with missing task_id or question: {item}")
             continue
         try:
+            # Initialize question_text2 with the original question
+            question_text2 = question_text
+            
+            # Add file path information if task_id is in tasks
             if task_id in tasks:
                 question_text2 = question_text + f"\n\nThis is the file path: {file_path + tasks[task_id]}"
-            if question_text2 is None:
-                question_text2 = question_text
+                
+            # Get the answer from the agent
             submitted_answer = agent(question_text2)
-            question_text2 = None
+            
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
         except Exception as e:
