@@ -29,7 +29,8 @@ from tools import (
     excel_to_text,
     save_attachment_to_tempfile,
     process_youtube_video,
-    transcribe_audio
+    transcribe_audio,
+    extract_python_code_from_complex_input
 )
 
 load_dotenv()
@@ -69,6 +70,7 @@ excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_pa
 process_youtube_video: Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
 transcribe_audio: Transcribe audio files using OpenAI Whisper, args: {"audio_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "language": {"type": "string", "optional": true}}
 
+If you get stuck, try using another tool. For example if you are unable to find relevant information from the tavily_search tool, try using the wikipedia_search tool and vice versa.
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
 
 Example use for tools:
@@ -474,15 +476,64 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
     print(f"Python code action_input: {action_input}")
     print(f"Action input type: {type(action_input)}")
     
-    # Try different ways to extract the code
-    code = ""
-    if isinstance(action_input, dict):
-        code = action_input.get("code", "")
-        print(f"Extracted code from dict: {repr(code[:100])}")
-    elif isinstance(action_input, str):
-        # If action_input is a string, it might be the code directly
-        code = action_input
-        print(f"Using string as code: {repr(code[:100])}")
+    # First try our specialized extraction function that handles nested structures
+    code = extract_python_code_from_complex_input(action_input)
+    
+    # If extraction failed or returned the same complex structure, fallback to regex
+    if code == action_input or (isinstance(code, str) and code.strip().startswith('{') and '"code"' in code):
+        # Convert the action_input to string for regex processing if it's a dictionary
+        if isinstance(action_input, dict):
+            action_input_str = json.dumps(action_input)
+        else:
+            action_input_str = str(action_input)
+        
+        # First, attempt direct regex extraction which is most robust for nested structures
+        import re
+        
+        # Try to extract code using regex patterns for different nesting levels
+        # Pattern for deeply nested code
+        deep_pattern = re.search(r'"code"\s*:\s*"(.*?)(?<!\\)"\s*}\s*}\s*}', action_input_str, re.DOTALL)
+        if deep_pattern:
+            extracted_code = deep_pattern.group(1)
+            # Unescape the extracted code
+            extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+            code = extracted_code
+            print(f"Extracted deeply nested code using regex: {repr(code[:100])}")
+        
+        # Pattern for single level nesting
+        elif '"code"' in action_input_str:
+            pattern = re.search(r'"code"\s*:\s*"(.*?)(?<!\\)"', action_input_str, re.DOTALL)
+            if pattern:
+                extracted_code = pattern.group(1)
+                # Unescape the extracted code
+                extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+                code = extracted_code
+                print(f"Extracted code using regex: {repr(code[:100])}")
+        
+        # If regex extraction failed, try dictionary approaches
+        if code == action_input and isinstance(action_input, dict):
+            # Direct code access
+            if "code" in action_input:
+                code = action_input["code"]
+                print(f"Extracted code directly from dict: {repr(code[:100])}")
+            
+            # Nested JSON structure handling
+            elif isinstance(action_input.get("code", ""), str) and action_input.get("code", "").strip().startswith('{'):
+                try:
+                    nested_json = json.loads(action_input["code"])
+                    if "action_input" in nested_json and isinstance(nested_json["action_input"], dict) and "code" in nested_json["action_input"]:
+                        code = nested_json["action_input"]["code"]
+                        print(f"Extracted code from nested JSON: {repr(code[:100])}")
+                except:
+                    # If parsing fails, use the code field as-is
+                    pass
+        
+        # If still no code, use the action_input directly (string case)
+        if code == action_input and isinstance(action_input, str):
+            code = action_input
+            print(f"Using action_input as code: {repr(code[:100])}")
+    
+    print(f"Final code to execute: {repr(code[:100])}...")
     
     # Additional validation: check for unmatched braces
     open_braces = code.count('{')
@@ -490,7 +541,7 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
     if open_braces != close_braces:
         result = f"Error: Code contains unmatched braces. Found {open_braces} '{{' and {close_braces} '}}'. Please check your code syntax."
     else:
-        # Call the code execution function
+        # Call the code execution function, which now also has improved extraction logic
         result = run_python_code(code)
     
     print(f"Code execution result: {result[:100]}...")  # Print first 100 chars
@@ -1109,7 +1160,17 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_iterations=25)
-    response = agent("""Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.""")
+    response = agent("""Given this table defining * on the set S = {a, b, c, d, e}
+
+|*|a|b|c|d|e|
+|---|---|---|---|---|---|
+|a|a|b|c|b|d|
+|b|b|c|a|e|c|
+|c|c|a|b|b|a|
+|d|b|e|b|e|d|
+|e|d|b|a|d|c|
+
+provide the subset of S involved in any possible counter-examples that prove * is not commutative. Provide your answer as a comma separated list of the elements in the set in alphabetical order.""")
     print("\nFinal Response:")
     print(response)
 

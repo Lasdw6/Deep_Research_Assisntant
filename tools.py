@@ -24,46 +24,207 @@ from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, No
 
 load_dotenv()
 
+def extract_python_code_from_complex_input(input_text):
+    """
+    Dedicated function to extract Python code from deeply nested JSON structures.
+    This function handles the specific case of Python code embedded in nested JSON.
+    """
+    import re
+    import json
+    
+    # Convert to string if it's not already
+    if not isinstance(input_text, str):
+        try:
+            input_text = json.dumps(input_text)
+        except:
+            input_text = str(input_text)
+    
+    # Check if this looks like a JSON structure containing code
+    if not (input_text.strip().startswith('{') and '"code"' in input_text):
+        return input_text  # Not a JSON structure, return as is
+    
+    # First attempt: Try to extract using a direct regex for the nested case
+    # This pattern looks for "code": "..." with proper escaping
+    pattern = re.compile(r'"code"\s*:\s*"(.*?)(?<!\\)"\s*}', re.DOTALL)
+    matches = pattern.findall(input_text)
+    
+    if matches:
+        # Get the longest match (most likely the complete code)
+        extracted_code = max(matches, key=len)
+        
+        # Unescape common escape sequences
+        extracted_code = extracted_code.replace('\\n', '\n')
+        extracted_code = extracted_code.replace('\\"', '"')
+        extracted_code = extracted_code.replace("\\'", "'")
+        extracted_code = extracted_code.replace("\\\\", "\\")
+        
+        print(f"Extracted code using direct regex approach: {extracted_code[:50]}...")
+        return extracted_code
+    
+    # Second attempt: Try JSON parsing and navigate the structure
+    try:
+        parsed = json.loads(input_text)
+        
+        # Navigate through possible structures
+        if isinstance(parsed, dict):
+            # Direct code field
+            if 'code' in parsed:
+                extracted = parsed['code']
+                if isinstance(extracted, str):
+                    return extracted
+            
+            # Action with action_input structure
+            if 'action' in parsed and 'action_input' in parsed:
+                action_input = parsed['action_input']
+                
+                # Case 1: action_input is a dict with code
+                if isinstance(action_input, dict) and 'code' in action_input:
+                    return action_input['code']
+                
+                # Case 2: action_input is a string that might be JSON
+                if isinstance(action_input, str):
+                    try:
+                        nested = json.loads(action_input)
+                        if isinstance(nested, dict) and 'code' in nested:
+                            return nested['code']
+                    except:
+                        # If it's not valid JSON, might be the code itself
+                        return action_input
+    except:
+        # If JSON parsing fails, try one more regex approach
+        # This looks for any content between balanced braces
+        try:
+            # Find the innermost code field
+            code_start = input_text.rfind('"code"')
+            if code_start != -1:
+                # Find the start of the value (after the colon and quote)
+                value_start = input_text.find(':', code_start)
+                if value_start != -1:
+                    value_start = input_text.find('"', value_start)
+                    if value_start != -1:
+                        value_start += 1  # Move past the quote
+                        # Now find the end quote that's not escaped
+                        value_end = value_start
+                        while True:
+                            next_quote = input_text.find('"', value_end + 1)
+                            if next_quote == -1:
+                                break
+                            # Check if this quote is escaped
+                            if input_text[next_quote - 1] != '\\':
+                                value_end = next_quote
+                                break
+                            value_end = next_quote
+                        
+                        if value_end > value_start:
+                            extracted = input_text[value_start:value_end]
+                            # Unescape
+                            extracted = extracted.replace('\\n', '\n')
+                            extracted = extracted.replace('\\"', '"')
+                            extracted = extracted.replace("\\'", "'")
+                            extracted = extracted.replace("\\\\", "\\")
+                            return extracted
+        except:
+            pass
+    
+    # If all else fails, return the original input
+    return input_text
+
 def run_python_code(code: str):
     """Execute Python code safely using exec() instead of subprocess."""
-    # Check for potentially dangerous operations
-    dangerous_operations = [
-        "os.system", "os.popen", "os.unlink", "os.remove",
-        "subprocess.run", "subprocess.call", "subprocess.Popen",
-        "shutil.rmtree", "shutil.move", "shutil.copy",
-        "open(", "file(", "eval(", "exec(", 
-        "__import__", "input(", "raw_input(",
-        "__builtins__", "globals(", "locals(",
-        "compile(", "execfile(", "reload("
-    ]
-    
-    # Safe imports that should be allowed
-    safe_imports = {
-        "import datetime", "import math", "import random", 
-        "import statistics", "import collections", "import itertools",
-        "import re", "import json", "import csv", "import numpy",
-        "import pandas", "from math import", "from datetime import",
-        "from statistics import", "from collections import",
-        "from itertools import"
-    }
-    
-    # Check for dangerous operations
-    for dangerous_op in dangerous_operations:
-        if dangerous_op in code:
-            return f"Error: Code contains potentially unsafe operations: {dangerous_op}"
-    
-    # Check each line for imports
-    for line in code.splitlines():
-        line = line.strip()
-        if line.startswith("import ") or line.startswith("from "):
-            # Check if it's in our safe list
-            is_safe = any(line.startswith(safe_import) for safe_import in safe_imports)
-            # Also allow basic numpy/pandas imports
-            is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
-            if not is_safe:
-                return f"Error: Code contains potentially unsafe import: {line}"
-    
     try:
+        # Pre-process code to handle complex nested structures
+        # This is our most aggressive approach to extract the actual code
+        code = extract_python_code_from_complex_input(code)
+        
+        # First, check if the input is a nested JSON structure
+        if code.strip().startswith('{') and ('"action"' in code or "'action'" in code):
+            try:
+                # Common issue: escaped quotes causing JSON parse errors
+                # Pre-process to handle common escaping problems
+                preprocessed_code = code
+                
+                # Handle the specific case we're seeing with nested escaped quotes
+                import re
+                
+                # Search for nested code pattern - this is a more direct approach
+                code_pattern = re.search(r'"code"\s*:\s*"(.*?)"\s*\}\s*\}\s*\}', code, re.DOTALL)
+                if code_pattern:
+                    extracted_code = code_pattern.group(1)
+                    # Unescape the extracted code
+                    extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+                    code = extracted_code
+                    print(f"Extracted code using regex pattern: {code[:100]}")
+                else:
+                    # Try JSON parsing approach if regex fails
+                    import json
+                    try:
+                        # First try direct parsing
+                        parsed_json = json.loads(code)
+                        
+                        # Check if this is an action structure with embedded code
+                        if 'action' in parsed_json and 'action_input' in parsed_json:
+                            if isinstance(parsed_json['action_input'], dict) and 'code' in parsed_json['action_input']:
+                                # Extract the actual code from the nested structure
+                                code = parsed_json['action_input']['code']
+                                print(f"Extracted code using JSON parsing: {code[:100]}")
+                            elif isinstance(parsed_json['action_input'], str):
+                                # Try to parse the action_input as JSON if it's a string
+                                try:
+                                    inner_input = json.loads(parsed_json['action_input'])
+                                    if isinstance(inner_input, dict) and 'code' in inner_input:
+                                        code = inner_input['code']
+                                        print(f"Extracted nested code: {code[:100]}")
+                                except:
+                                    # If parsing fails, assume the action_input itself is the code
+                                    code = parsed_json['action_input']
+                                    print(f"Using action_input as code: {code[:100]}")
+                    except json.JSONDecodeError:
+                        # Direct parsing failed, try alternative approaches
+                        print("JSON parsing failed, trying alternative approaches")
+            except Exception as e:
+                print(f"Error during code extraction: {str(e)}")
+                # If JSON parsing fails, proceed with the original code
+                pass
+                
+        print(f"Final code to execute: {code[:100]}...")
+        
+        # Check for potentially dangerous operations
+        dangerous_operations = [
+            "os.system", "os.popen", "os.unlink", "os.remove",
+            "subprocess.run", "subprocess.call", "subprocess.Popen",
+            "shutil.rmtree", "shutil.move", "shutil.copy",
+            "open(", "file(", "eval(", "exec(", 
+            "__import__", "input(", "raw_input(",
+            "__builtins__", "globals(", "locals(",
+            "compile(", "execfile(", "reload("
+        ]
+        
+        # Safe imports that should be allowed
+        safe_imports = {
+            "import datetime", "import math", "import random", 
+            "import statistics", "import collections", "import itertools",
+            "import re", "import json", "import csv", "import numpy",
+            "import pandas", "from math import", "from datetime import",
+            "from statistics import", "from collections import",
+            "from itertools import"
+        }
+        
+        # Check for dangerous operations
+        for dangerous_op in dangerous_operations:
+            if dangerous_op in code:
+                return f"Error: Code contains potentially unsafe operations: {dangerous_op}"
+        
+        # Check each line for imports
+        for line in code.splitlines():
+            line = line.strip()
+            if line.startswith("import ") or line.startswith("from "):
+                # Check if it's in our safe list
+                is_safe = any(line.startswith(safe_import) for safe_import in safe_imports)
+                # Also allow basic numpy/pandas imports
+                is_safe = is_safe or line.startswith("import numpy") or line.startswith("import pandas")
+                if not is_safe:
+                    return f"Error: Code contains potentially unsafe import: {line}"
+        
         # Capture stdout to get print output
         import io
         import sys
