@@ -65,7 +65,7 @@ The only values that should be in the "action" field are:
 python_code: Execute Python code. Use this tool to calculate math problems. make sure to use prints to be able to view the final result. args: {"code": {"type": "string"}}
 wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
 tavily_search: Search the web using Tavily. Optionally specify search_depth as 'basic' or 'comprehensive', args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
-arxiv_search: Search ArXiv for publications. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
+arxiv_search: Search ArXiv for publications,news and other resources. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
@@ -346,14 +346,40 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     return state_update
 
 def extract_json_from_text(text: str) -> dict:
-    """Extract JSON from text, handling markdown code blocks."""
+    """Extract JSON from text, handling markdown code blocks and other formats."""
     try:
         import re
+        import json
+        
+        # Return empty if text is None or very short (less than 10 chars)
+        if not text or len(text.strip()) < 10:
+            print("Warning: Empty or very short text input to JSON extraction")
+            return None
         
         print(f"Attempting to extract JSON from text: {text[:200]}...")
         
         # First, clean up the text to handle specific patterns that might confuse parsing
         text = text.replace('\\n', '\n').replace('\\"', '"')
+        
+        # Case 1: "Final Answer:" detection - if present, return None to indicate we should end
+        if "Final Answer:" in text:
+            print("Detected 'Final Answer' - no tool action needed")
+            return None
+        
+        # Case 2: Extract direct python dictionary representation without JSON formatting
+        if "action_input" in text and not '{"action"' in text and not '{"action_input"' in text:
+            # Try regex to extract a Python dict-like structure
+            action_match = re.search(r"action:\s*(\w+)", text, re.IGNORECASE)
+            input_match = re.search(r"action_input:\s*(\{.+?\})", text, re.DOTALL | re.IGNORECASE)
+            
+            if action_match and input_match:
+                action = action_match.group(1).strip()
+                try:
+                    action_input = eval(input_match.group(1))  # Be careful with eval!
+                    if isinstance(action_input, dict):
+                        return {"action": action, "action_input": action_input}
+                except:
+                    pass
         
         # Pattern 1: Look for "Action:" followed by a markdown code block
         action_match = re.search(r"Action:\s*```(?:python|json)?\s*(.*?)```", text, re.DOTALL)
@@ -424,7 +450,79 @@ def extract_json_from_text(text: str) -> dict:
             except json.JSONDecodeError:
                 pass
         
+        # Pattern 5: Look for simple text patterns like "I need to use tool X to search for Y"
+        tool_patterns = [
+            (r"(?:use|using|need to use|should use|will use)(?:\s+the)?\s+(\w+)(?:\s+tool)?\s+to\s+(?:search|find|look up|research)(?:\s+for)?\s+['\"](.*?)['\"]", 
+             lambda m: {"action": m.group(1).lower(), "action_input": {"query": m.group(2)}}),
+            (r"(?:use|using|need to use|should use|will use)(?:\s+the)?\s+(\w+)(?:\s+tool)?\s+to\s+(?:search|find|look up|research)\s+(?:for\s+)?(.+?)(?=\.|$)", 
+             lambda m: {"action": m.group(1).lower(), "action_input": {"query": m.group(2).strip()}}),
+            (r"(?:use|using|need to use|should use|will use)(?:\s+the)?\s+(\w+)(?:\s+tool)?\s+on\s+['\"](.*?)['\"]", 
+             lambda m: {"action": m.group(1).lower(), "action_input": {"query": m.group(2)}})
+        ]
+        
+        for pattern, formatter in tool_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    result = formatter(match)
+                    # Map common words to actual tool names
+                    tool_mapping = {
+                        "tavily": "tavily_search",
+                        "wikipedia": "wikipedia_search",
+                        "arxiv": "arxiv_search",
+                        "web": "tavily_search",
+                        "python": "python_code",
+                        "excel": "excel_to_text",
+                        "youtube": "process_youtube_video",
+                        "webpage": "webpage_scrape",
+                        "scrape": "webpage_scrape"
+                    }
+                    
+                    if result["action"].lower() in tool_mapping:
+                        result["action"] = tool_mapping[result["action"].lower()]
+                        
+                    print(f"Extracted tool action using pattern: {result}")
+                    return result
+                except Exception as e:
+                    print(f"Error formatting pattern match: {e}")
+        
+        # Fallback: If we detect thinking about a specific topic, suggest a related tool
+        fallback_patterns = [
+            (r"(?:I need|I should|I will|let me|I can)(?:\s+(?:to))?\s+(?:search|find|look for)\s+(?:information|details|data)?\s+(?:about|on|regarding)?\s+(.+?)(?=\.|$)",
+             lambda m: {"action": "tavily_search", "action_input": {"query": m.group(1).strip()}}),
+            (r"(?:I will|I should|let me)(?:\s+now)?\s+(?:search|check)(?:\s+on)?\s+wikipedia\s+(?:for)?\s+(.+?)(?=\.|$)",
+             lambda m: {"action": "wikipedia_search", "action_input": {"query": m.group(1).strip()}}),
+            (r"(?:I need|I should|I will|let me)(?:\s+to)?\s+(?:execute|run|write|use)\s+(?:some|a)?\s+python\s+(?:code)?",
+             lambda m: {"action": "python_code", "action_input": {"code": "# Example code\nprint('Please specify Python code to execute')"}})
+        ]
+        
+        for pattern, formatter in fallback_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    result = formatter(match)
+                    print(f"Used fallback pattern to suggest tool: {result}")
+                    return result
+                except Exception as e:
+                    print(f"Error in fallback pattern: {e}")
+        
         print("Could not extract valid JSON from text using any pattern")
+        
+        # Last resort fallback: If we've tried everything and failed, and the response is long
+        # enough to suggest the model is doing work but not formatting correctly, try to 
+        # extract any query-like content and suggest a tavily search
+        if len(text) > 200 and "search" in text.lower():
+            # Extract a potential query - look for sentences with search-related terms
+            search_sentences = re.findall(r'[^.!?]*(?:search|find|look for|investigate|research)[^.!?]*[.!?]', text)
+            if search_sentences:
+                best_sentence = max(search_sentences, key=len)
+                # Clean up the query
+                query = re.sub(r'(?:I will|I should|I need to|I want to|Let me|I\'ll|I can)\s+(?:search|find|look for|investigate|research)(?:\s+for)?\s+', '', best_sentence)
+                query = query.strip('.!? \t\n')
+                if query and len(query) > 5:
+                    print(f"Last resort fallback: suggesting Tavily search for: {query}")
+                    return {"action": "tavily_search", "action_input": {"query": query}}
+        
         return None
         
     except Exception as e:

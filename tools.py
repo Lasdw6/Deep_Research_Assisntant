@@ -297,24 +297,74 @@ def scrape_webpage(url: str) -> str:
         
         print(f"Scraping URL: {url}")
         
-        # Set user agent to avoid being blocked
+        # Rotate between different user agents to avoid being blocked
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:94.0) Gecko/20100101 Firefox/94.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/96.0.4664.53 Mobile/15E148 Safari/604.1'
+        ]
+        
+        import random
+        selected_user_agent = random.choice(user_agents)
+        
+        # Set more comprehensive headers that mimic a real browser
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'User-Agent': selected_user_agent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
             'Cache-Control': 'max-age=0',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Pragma': 'no-cache'
         }
         
         # Set a reasonable timeout to avoid hanging
-        timeout = 10
+        timeout = 15
         
-        # Make the request
-        response = requests.get(url, headers=headers, timeout=timeout)
+        # Implement a simple retry mechanism
+        max_retries = 3
+        retry_delay = 2  # seconds
         
+        for attempt in range(max_retries):
+            try:
+                # Make the request
+                response = requests.get(url, headers=headers, timeout=timeout)
+                
+                # If successful, break out of retry loop
+                if response.status_code == 200:
+                    break
+                    
+                # If we got a 403 Forbidden error, try a different approach
+                if response.status_code == 403 and attempt < max_retries - 1:
+                    print(f"Received 403 Forbidden. Retrying with different headers (attempt {attempt + 1})...")
+                    # Change user agent for next attempt
+                    headers['User-Agent'] = random.choice(user_agents)
+                    # Add a referrer from a major site to appear more legitimate
+                    headers['Referer'] = 'https://www.google.com/'
+                    import time
+                    time.sleep(retry_delay)
+                    continue
+                    
+            except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
+                if attempt < max_retries - 1:
+                    print(f"Request failed: {e}. Retrying (attempt {attempt + 1})...")
+                    import time
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    raise
+                    
         # Check if request was successful
         if response.status_code != 200:
+            if response.status_code == 403:
+                return f"Error: Access Forbidden (403). The website is actively blocking scrapers or requires authentication. Try using a different search method like Tavily search instead."
             return f"Error: Failed to fetch the webpage. Status code: {response.status_code}"
         
         # Use BeautifulSoup to parse the HTML
