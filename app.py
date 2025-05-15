@@ -140,7 +140,7 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
              "f918266a-b3e0-4914-865d-4faa564f1aef":"code.py",
              "99c9cc74-fdc8-46c6-8f8d-3ce2d3bfeea3":"audio2.mp3",
              "7bd855d8-463d-4ed5-93ca-5fe35145f733":"excel.xlsx"}
-    
+    file_path = "TEMPP/"
     print(f"Running agent on {len(questions_data)} questions...")
     for item in questions_data:
         task_id = item.get("task_id")
@@ -150,7 +150,7 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             continue
         try:
             if task_id in tasks:
-                question_text = question_text + f"\n\nThis is the file path: {tasks[task_id]}"
+                question_text = question_text + f"\n\nThis is the file path: {file_path + tasks[task_id]}"
             submitted_answer = agent(question_text)
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
@@ -232,15 +232,18 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                         question_input = gr.Textbox(
                             label="Ask a question",
                             placeholder="Type your question here...",
-                            lines=2,
+                            lines=3,
                             max_lines=5,
-                            scale=1
+                            container=True,
+                            scale=3,
+                            height=150
                         )
                         file_upload = gr.File(
                             label="Upload Files",
                             file_types=ALLOWED_FILE_EXTENSIONS,
                             file_count="multiple",
-                            scale=1
+                            scale=1,
+                            height=150
                         )
                     with gr.Row():
                         submit_btn = gr.Button("Send", variant="primary")
