@@ -4,9 +4,9 @@ emoji: 🤓
 colorFrom: yellow
 colorTo: red
 sdk: gradio
-sdk_version: 5.29.0
+sdk_version: 5.29.1
 app_file: app.py
-pinned: false
+pinned: true
 hf_oauth: true
 hf_oauth_expiration_minutes: 480
 ---
