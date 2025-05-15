@@ -221,7 +221,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             gr.Markdown("""
             # You found a secret page 🤫
             ## Agent Evaluation Runner for the AI Agents course on HF :P
-            ## See my ranking (@Lasdw) on the course [here](https://huggingface.co/spaces/Lasdw/AI-Agents-Unit-4-Leaderboard)
+            ## See my ranking (@Lasdw) on the course [here](https://huggingface.co/spaces/agents-course/Students_leaderboard)
             
             ## Below is the original README.md for the space
                         
