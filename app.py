@@ -66,15 +66,15 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         session_histories[session_id].append({"role": "user", "content": question})
         
         # Check rate limit
-        if not query_limiter.is_allowed(session_id):
-            remaining_time = query_limiter.get_time_until_reset(session_id)
-            error_message = (
-                f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
-                f"Please wait {int(remaining_time)} seconds before trying again."
-            )
-            history.append({"role": "assistant", "content": error_message})
-            session_histories[session_id].append({"role": "assistant", "content": error_message})
-            return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
+        # if not query_limiter.is_allowed(session_id):
+        #     remaining_time = query_limiter.get_time_until_reset(session_id)
+        #     error_message = (
+        #         f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
+        #         f"Please wait {int(remaining_time)} seconds before trying again."
+        #     )
+        #     history.append({"role": "assistant", "content": error_message})
+        #     session_histories[session_id].append({"role": "assistant", "content": error_message})
+        #     return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
         agent = TurboNerd()
@@ -150,13 +150,13 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
             formatted_response = response
         
         # Add remaining queries info
-        remaining_queries = query_limiter.get_remaining_queries(session_id)
+        # remaining_queries = query_limiter.get_remaining_queries(session_id)
         
         # Add response to both histories
         history.append({"role": "assistant", "content": formatted_response})
         session_histories[session_id].append({"role": "assistant", "content": formatted_response})
         
-        return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
+        return history, "", "Remaining queries this hour: 5/5"
     except RecursionError as e:
         error_message = (
             "I apologize, but I've reached my thinking limit while trying to answer your question. "
@@ -169,7 +169,14 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
             session_histories[session_id].append({"role": "assistant", "content": error_message})
         return history, "", "Remaining queries this hour: 5/5"
     except Exception as e:
-        error_message = f"Error: {str(e)}"
+        error_str = str(e).lower()
+        if "credit" in error_str or "quota" in error_str or "limit" in error_str or "exceeded" in error_str or "OPENAI_API_KEY" in error_str or "TAVILY_API_KEY" in error_str:
+            error_message = (
+                "It seems I've run out of API credits. "
+                "Please try again later or tomorrow when the credits reset. ")
+        else:
+            error_message = f"Error: {str(e)}"
+        
         history.append({"role": "assistant", "content": error_message})
         if session_id in session_histories:
             session_histories[session_id].append({"role": "assistant", "content": error_message})
@@ -356,11 +363,11 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                         height=300,
                         type="messages"  # Use the new messages format
                     )
-                    remaining_queries = gr.Textbox(
-                        label="Remaining Queries",
-                        value="Remaining queries this hour: 5/5",
-                        interactive=False
-                    )
+                    # remaining_queries = gr.Textbox(
+                    #     label="Remaining Queries",
+                    #     value="Remaining queries this hour: 5/5",
+                    #     interactive=False
+                    # )
                     with gr.Row():
                         question_input = gr.Textbox(
                             label="Ask a question",
@@ -383,13 +390,13 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             submit_btn.click(
                 fn=chat_with_agent,
                 inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input, remaining_queries]
+                outputs=[chatbot, question_input]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
                 inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input, remaining_queries]
+                outputs=[chatbot, question_input]
             )
         
         # Tab 2: Evaluation Interface
