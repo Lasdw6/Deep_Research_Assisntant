@@ -91,7 +91,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                             file_content = f.read()
                             file_content_b64 = base64.b64encode(file_content).decode("utf-8")
                             attachments[file_name] = file_content_b64
-                            file_info += f"\nUploaded file: {file_name}"
+                            file_info += f"\nUploaded file: {file_path}"
             
             if file_info:
                 if question.strip():
