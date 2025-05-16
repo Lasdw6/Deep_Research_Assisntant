@@ -37,9 +37,9 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     
     try:
         # Get client IP for rate limiting using Gradio's request context
-        with gr.Request() as request:
-            ip_address = request.client.host if request else "127.0.0.1"
-            print(f"Request from IP: {ip_address}")
+        request = gr.get_request()
+        ip_address = request.client.host if request else "127.0.0.1"
+        print(f"Request from IP: {ip_address}")
         
         # Check rate limit
         if not query_limiter.is_allowed(ip_address):
