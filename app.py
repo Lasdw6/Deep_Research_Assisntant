@@ -28,7 +28,7 @@ class BasicAgent:
         return answer
 
 # --- Chat Interface Functions ---
-def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
+def chat_with_agent(question: str, file_uploads, history: list, request: gr.Request) -> tuple:
     """
     Handle chat interaction with TurboNerd agent, now with file upload support.
     """
@@ -37,7 +37,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     
     try:
         # Get client IP for rate limiting using Gradio's request context
-        ip_address = gr.Request.client.host if gr.Request else "127.0.0.1"
+        ip_address = request.client.host if request else "127.0.0.1"
         print(f"Request from IP: {ip_address}")
         
         # Check rate limit
@@ -329,13 +329,13 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
         
