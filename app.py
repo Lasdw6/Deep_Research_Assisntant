@@ -35,12 +35,17 @@ def format_history_for_agent(history: list) -> str:
     """
     Format the chat history into a string that the agent can understand.
     """
-    formatted_history = ""
+    if not history:
+        return ""
+        
+    formatted_history = []
     for message in history:
-        role = message["role"]
-        content = message["content"]
-        formatted_history += f"{role.upper()}: {content}\n"
-    return formatted_history
+        if isinstance(message, dict) and "role" in message and "content" in message:
+            role = message["role"]
+            content = message["content"]
+            formatted_history.append(f"{role.upper()}: {content}")
+    
+    return "\n".join(formatted_history)
 
 def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     """
@@ -81,12 +86,20 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                     
                     # Check if file extension is allowed
                     if file_ext in ALLOWED_FILE_EXTENSIONS:
+                        # Create a local copy of the file
+                        local_path = os.path.join("uploads", file_name)
+                        os.makedirs("uploads", exist_ok=True)
+                        
+                        # Copy the file to local storage
+                        with open(file_path, "rb") as src, open(local_path, "wb") as dst:
+                            dst.write(src.read())
+                        
                         # Read file content and encode as base64
-                        with open(file_path, "rb") as f:
+                        with open(local_path, "rb") as f:
                             file_content = f.read()
                             file_content_b64 = base64.b64encode(file_content).decode("utf-8")
                             attachments[file_name] = file_content_b64
-                            file_info += f"\nUploaded file: {file_name}"
+                            file_info += f"\nUploaded file: {local_path}"
             
             if file_info:
                 if question.strip():
@@ -99,11 +112,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         print(f"Current conversation history:\n{conversation_history}")  # Debug print
         
         # Prepare the full context for the agent
-        full_context = {
-            "question": question,
-            "conversation_history": conversation_history,
-            "session_id": session_id
-        }
+        full_context = f"Question: {question}\n\nConversation History:\n{conversation_history}"
         
         # Get response from agent with attachments if available
         if attachments:
