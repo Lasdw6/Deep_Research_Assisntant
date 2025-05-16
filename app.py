@@ -36,12 +36,12 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         return history, "", "Remaining queries this hour: 5/5"
     
     try:
-        # Get client IP or session ID for rate limiting
-        user_id = request.remote_addr if request else "127.0.0.1"
+        # Get client IP for rate limiting
+        ip_address = request.remote_addr if request else "127.0.0.1"
         
         # Check rate limit
-        if not query_limiter.is_allowed(user_id):
-            remaining_time = query_limiter.get_time_until_reset(user_id)
+        if not query_limiter.is_allowed(ip_address):
+            remaining_time = query_limiter.get_time_until_reset(ip_address)
             error_message = (
                 f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
                 f"Please wait {int(remaining_time)} seconds before trying again."
@@ -112,7 +112,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
             formatted_response = response
         
         # Add remaining queries info
-        remaining_queries = query_limiter.get_remaining_queries(user_id)
+        remaining_queries = query_limiter.get_remaining_queries(ip_address)
         
         # Add question and response to history in the correct format (as tuples)
         history.append((question, formatted_response))
