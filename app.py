@@ -277,9 +277,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             with gr.Row():
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(
-                        height=600,
-                        min_width=600,
-                        max_width=1200
+                        height=600
                     )
                     with gr.Row():
                         with gr.Column(scale=4):
