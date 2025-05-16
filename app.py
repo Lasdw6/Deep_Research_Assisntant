@@ -43,7 +43,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         if not query_limiter.is_allowed(user_id):
             remaining_time = query_limiter.get_time_until_reset(user_id)
             error_message = (
-                f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. "
+                f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
                 f"Please wait {int(remaining_time)} seconds before trying again."
             )
             history.append((question, error_message))
@@ -113,7 +113,6 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         
         # Add remaining queries info
         remaining_queries = query_limiter.get_remaining_queries(user_id)
-        formatted_response += f"\n\n---\nRemaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
         
         # Add question and response to history in the correct format (as tuples)
         history.append((question, formatted_response))
