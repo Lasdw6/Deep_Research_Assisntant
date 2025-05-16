@@ -57,6 +57,9 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Initialize or get session history
         if session_id not in session_histories:
             session_histories[session_id] = []
+            # If we have existing history, add it to the session history
+            if history:
+                session_histories[session_id].extend(history)
         
         # Add the question to both histories immediately
         history.append({"role": "user", "content": question})
@@ -104,6 +107,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         
         # Format the session-specific conversation history
         conversation_history = format_history_for_agent(session_histories[session_id])
+        print(f"Current conversation history:\n{conversation_history}")  # Debug print
         
         # Prepare the full context for the agent
         full_context = {
