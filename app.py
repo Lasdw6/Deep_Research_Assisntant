@@ -15,6 +15,9 @@ ALLOWED_FILE_EXTENSIONS = [".mp3", ".xlsx", ".py", ".png", ".jpg", ".jpeg", ".gi
 # Initialize rate limiter (5 queries per hour)
 query_limiter = QueryRateLimiter(max_queries_per_hour=5)
 
+# Dictionary to store session-specific conversation histories
+session_histories = {}
+
 # --- Basic Agent Definition ---
 class BasicAgent:
     def __init__(self):
@@ -28,6 +31,17 @@ class BasicAgent:
         return answer
 
 # --- Chat Interface Functions ---
+def format_history_for_agent(history: list) -> str:
+    """
+    Format the chat history into a string that the agent can understand.
+    """
+    formatted_history = ""
+    for message in history:
+        role = message["role"]
+        content = message["content"]
+        formatted_history += f"{role.upper()}: {content}\n"
+    return formatted_history
+
 def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     """
     Handle chat interaction with TurboNerd agent, now with file upload support.
@@ -36,27 +50,24 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         return history, "", "Remaining queries this hour: 5/5"
     
     try:
-        # Get client IP for rate limiting using Gradio's request context
-        request = gr.Request()
-        # Try to get IP from X-Forwarded-For header first, then fallback to client.host
-        ip_address = None
-        if request and hasattr(request, 'headers'):
-            ip_address = request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
-        if not ip_address and request and hasattr(request, 'client'):
-            ip_address = request.client.host
-        if not ip_address:
-            ip_address = "127.0.0.1"
-        print(f"Request from IP: {ip_address}")
+        # Use a session-based identifier for rate limiting and history
+        session_id = str(id(history))  # Use the history object's ID as a unique session identifier
+        print(f"Using session ID: {session_id}")
+        
+        # Initialize or get session history
+        if session_id not in session_histories:
+            session_histories[session_id] = []
         
         # Check rate limit
-        if not query_limiter.is_allowed(ip_address):
-            remaining_time = query_limiter.get_time_until_reset(ip_address)
+        if not query_limiter.is_allowed(session_id):
+            remaining_time = query_limiter.get_time_until_reset(session_id)
             error_message = (
                 f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
                 f"Please wait {int(remaining_time)} seconds before trying again."
             )
             history.append({"role": "user", "content": question})
             history.append({"role": "assistant", "content": error_message})
+            session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": error_message}])
             return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
@@ -87,6 +98,13 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                     question = question + file_info
                 else:
                     question = f"Please analyze these files: {file_info}"
+        
+        # Format the session-specific conversation history
+        conversation_history = format_history_for_agent(session_histories[session_id])
+        
+        # Add context about the conversation history
+        if conversation_history:
+            question = f"Previous conversation in this session:\n{conversation_history}\n\nCurrent question: {question}"
         
         # Get response from agent with attachments if available
         if attachments:
@@ -122,17 +140,20 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
             formatted_response = response
         
         # Add remaining queries info
-        remaining_queries = query_limiter.get_remaining_queries(ip_address)
+        remaining_queries = query_limiter.get_remaining_queries(session_id)
         
-        # Add question and response to history in the correct format
+        # Add question and response to both the current history and session history
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": formatted_response})
+        session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": formatted_response}])
         
         return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
     except Exception as e:
         error_message = f"Error: {str(e)}"
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": error_message})
+        if session_id in session_histories:
+            session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": error_message}])
         return history, "", "Remaining queries this hour: 5/5"
 
 def clear_chat():
@@ -303,6 +324,11 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             - "This code contains a bug. Debug it ."
 
             The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
+            """)
+            
+            gr.Markdown("""
+            ### Disclaimer
+            This tool is designed for educational and research purposes only. It is not intended for malicious use.
             """)
             
             with gr.Row():
