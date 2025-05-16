@@ -78,7 +78,7 @@ read_file: Read and display the contents of a text file, args: {"file_path": {"t
 
 If you get stuck, try using another tool. For example if you are unable to find relevant information from the tavily_search tool, try using the wikipedia_search tool and vice versa.
 IMPORTANT: Make sure your JSON is properly formatted with double quotes around keys and string values.
-If you do not wish to use any tool, leave the action field empty.
+If you do not wish to use any tool and want to answer the question using your internal knowledge, directly answer the question using Final Answer: and nothing else.
 
 Example use for tools:
 
