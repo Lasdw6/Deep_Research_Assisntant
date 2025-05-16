@@ -65,9 +65,9 @@ Specifically, this json should have an `action` key (with the name of the tool t
 
 The only values that should be in the "action" field are:
 python_code: Execute Python code. Use this tool to calculate math problems. make sure to use prints to be able to view the final result. args: {"code": {"type": "string"}}
-wikipedia_search: Search Wikipedia for information about a specific topic. DO NOT use Wikipedia Search for basic questions that you can answer using your internal knowledge. Optionally specify the number of results to return, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
-tavily_search: Search the web using Tavily. Optionally specify search_depth as 'basic' or 'comprehensive'. DO NOT use Tavily Search for basic questions that you can answer using your internal knowledge. args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
-arxiv_search: Search ArXiv for publications,news and other resources. DO NOT use Arxiv Search for basic questions that you can answer using your internal knowledge. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
+wikipedia_search: Search Wikipedia for information about a specific topic. Optionally specify the number of results to return, args: {"query": {"type": "string"}, "num_results": {"type": "integer", "optional": true}}
+tavily_search: Search the web using Tavily. Optionally specify search_depth as 'basic' or 'comprehensive'. DO NOT use Tavily Search for basic questions that you can answer using your internal knowledge especially if the question is not about factual information. args: {"query": {"type": "string"}, "search_depth": {"type": "string", "optional": true}}
+arxiv_search: Search ArXiv for publications,news and other resources. Optionally specify max_results to control the number of papers returned, args: {"query": {"type": "string"}, "max_results": {"type": "integer", "optional": true}}
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
