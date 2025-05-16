@@ -653,125 +653,79 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
     """Node that executes Python code."""
     print("Python Code Tool Called...\n\n")
     
-    # Ensure AIMessage is available in this scope
-    from langchain_core.messages import AIMessage
-    
     # Extract tool arguments
     action_input = state.get("action_input", {})
     print(f"Python code action_input: {action_input}")
     print(f"Action input type: {type(action_input)}")
     
-    # Extract code using specialized functions
-    # First try the extract_python_code_from_complex_input function from tools
-    from tools import extract_python_code_from_complex_input
-    
-    # Debugging: Print full action_input for analysis
-    if isinstance(action_input, dict) and "code" in action_input:
-        print(f"Original code field (first 100 chars): {repr(action_input['code'][:100])}")
+    # Get the code string
+    code = ""
+    if isinstance(action_input, dict):
+        code = action_input.get("code", "")
     elif isinstance(action_input, str):
-        print(f"Original string input (first 100 chars): {repr(action_input[:100])}")
+        code = action_input
     
-    # Try to detect and fix double nesting issues
-    if isinstance(action_input, dict) and "code" in action_input:
-        code_value = action_input["code"]
-        if isinstance(code_value, str) and code_value.strip().startswith('{') and '"action"' in code_value:
-            print("Detected doubly nested JSON structure - attempting to fix")
-            try:
-                import json
-                import re
-                
-                # First try to fix common escape issues that might cause JSON decode errors
-                # Replace escaped single quotes with temporary placeholders
-                fixed_code = code_value.replace("\\'", "___SQUOTE___")
-                # Replace escaped double quotes with proper JSON escapes
-                fixed_code = fixed_code.replace('\\"', '\\\\"')
-                # Fix newlines
-                fixed_code = fixed_code.replace('\\n', '\\\\n')
-                
-                try:
-                    # Try to parse the fixed JSON
-                    nested_json = json.loads(fixed_code)
-                except:
-                    # If that fails, try a more aggressive approach with regex
-                    print("JSON parsing failed, trying regex approach")
-                    action_match = re.search(r'"action"\s*:\s*"([^"]+)"', code_value)
-                    code_match = re.search(r'"code"\s*:\s*"((?:[^"\\]|\\.)*)"', code_value)
-                    
-                    if action_match and code_match and action_match.group(1) == "python_code":
-                        # Extract the inner code and unescape it
-                        extracted_code = code_match.group(1)
-                        extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-                        print(f"Extracted Python code using regex: {extracted_code[:100]}")
-                        # Get run_python_code from tools
-                        return {
-                            "messages": state["messages"] + [AIMessage(content=f"Observation: {run_python_code(extracted_code)}")],
-                            "current_tool": None,
-                            "action_input": None
-                        }
-                
-                if isinstance(nested_json, dict) and "action" in nested_json and nested_json["action"] == "python_code":
-                    if "action_input" in nested_json and isinstance(nested_json["action_input"], dict) and "code" in nested_json["action_input"]:
-                        # We have a doubly nested structure - extract the innermost code
-                        actual_code = nested_json["action_input"]["code"]
-                        # Replace our placeholders back
-                        if isinstance(actual_code, str):
-                            actual_code = actual_code.replace("___SQUOTE___", "'")
-                        print(f"Successfully extracted code from doubly nested structure. First 100 chars: {repr(actual_code[:100])}")
-                        code = actual_code
-                    else:
-                        code = code_value
-                else:
-                    code = code_value
-            except Exception as e:
-                print(f"Error attempting to fix nested structure: {e}")
-                # Fall back to direct regex extraction
-                import re
-                code_match = re.search(r'code":\s*"((?:[^"\\]|\\.)*)(?<!\\)"', code_value)
-                if code_match:
-                    extracted_code = code_match.group(1)
-                    # Unescape the extracted code
-                    extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-                    code = extracted_code
-                    print(f"Extracted code using fallback regex: {repr(code[:100])}")
-                else:
-                    # If all parsing fails, try to use extract_python_code_from_complex_input
-                    from tools import extract_python_code_from_complex_input
-                    code = extract_python_code_from_complex_input(action_input)
-        else:
-            code = extract_python_code_from_complex_input(action_input)
-    else:
-        code = extract_python_code_from_complex_input(action_input)
+    print(f"Original code field (first 100 chars): {code[:100]}")
     
-    print(f"Final code to execute: {repr(code[:100])}...")
+    def extract_code_from_json(json_str):
+        """Recursively extract code from nested JSON structures."""
+        try:
+            parsed = json.loads(json_str)
+            if isinstance(parsed, dict):
+                # Check for direct code field
+                if "code" in parsed:
+                    return parsed["code"]
+                # Check for nested action_input structure
+                if "action_input" in parsed:
+                    inner_input = parsed["action_input"]
+                    if isinstance(inner_input, dict):
+                        if "code" in inner_input:
+                            return inner_input["code"]
+                        # If inner_input is also JSON string, recurse
+                        if isinstance(inner_input.get("code", ""), str) and inner_input["code"].strip().startswith("{"):
+                            return extract_code_from_json(inner_input["code"])
+            return json_str
+        except:
+            return json_str
     
-    # Additional validation: check for unmatched braces
-    open_braces = code.count('{')
-    close_braces = code.count('}')
-    if open_braces != close_braces:
-        result = f"Error: Code contains unmatched braces. Found {open_braces} '{{' and {close_braces} '}}'. Please check your code syntax."
-    else:
-        # Call the code execution function, which now also has improved extraction logic
+    # Handle nested JSON structures
+    if isinstance(code, str) and code.strip().startswith("{"):
+        code = extract_code_from_json(code)
+        print("Extracted code from JSON structure")
+    
+    print(f"Final code to execute: {code[:100]}...")
+    
+    # Execute the code
+    try:
         result = run_python_code(code)
-    
-    print(f"Code execution result: {result[:100]}...")  # Print first 100 chars
-    
-    # Format the observation to continue the ReAct cycle
-    # Create a tool message with the result
-    tool_message = AIMessage(
-        content=f"Observation: {result}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    print(tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+        print(f"Code execution result: {result}")
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        # Print the observation that will be sent back to the assistant
+        print("\n=== TOOL OBSERVATION ===")
+        content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+        print(content_preview)
+        print("=== END OBSERVATION ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,  # Reset the current tool
+            "action_input": None   # Clear the action input
+        }
+    except Exception as e:
+        error_message = f"Error executing Python code: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def webpage_scrape_node(state: AgentState) -> Dict[str, Any]:
     """Node that scrapes content from a specific webpage URL."""

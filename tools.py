@@ -194,8 +194,22 @@ def test_python_execution(code_str):
         except SyntaxError as e:
             print(f"Syntax error: {str(e)}")
     
+    # Get the captured output
+    output_text = output.getvalue()
+    
+    # Try to evaluate the last expression if it's not a statement
+    try:
+        last_line = code_str.strip().split('\n')[-1]
+        if not last_line.endswith(':'):  # Not a control structure
+            last_result = eval(last_line, test_globals, test_locals)
+            if last_result is not None:
+                return str(last_result)
+    except:
+        pass  # If evaluation fails, just return the output
+    
     # Return the captured output
-    return output.getvalue()
+    return output_text
+
 def run_python_code(code: str):
     """Execute Python code safely using an external Python process."""
     try:
@@ -267,6 +281,7 @@ def run_python_code(code: str):
         return f"Zero Division Error: {str(e)}"
     except Exception as e:
         return f"Error executing code: {str(e)}"
+
 def scrape_webpage(url: str) -> str:
     """
     Safely scrape content from a specified URL.
