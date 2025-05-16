@@ -33,7 +33,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     Handle chat interaction with TurboNerd agent, now with file upload support.
     """
     if not question.strip() and not file_uploads:
-        return history, ""
+        return history, "", "Remaining queries this hour: 5/5"
     
     try:
         # Get client IP or session ID for rate limiting
@@ -47,7 +47,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                 f"Please wait {int(remaining_time)} seconds before trying again."
             )
             history.append((question, error_message))
-            return history, ""
+            return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
         agent = TurboNerd()
@@ -118,15 +118,15 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Add question and response to history in the correct format (as tuples)
         history.append((question, formatted_response))
         
-        return history, ""
+        return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
     except Exception as e:
         error_message = f"Error: {str(e)}"
         history.append((question, error_message))
-        return history, ""
+        return history, "", "Remaining queries this hour: 5/5"
 
 def clear_chat():
     """Clear the chat history."""
-    return [], "", None
+    return [], "", None, "Remaining queries this hour: 5/5"
 
 # --- Evaluation Functions ---
 def run_and_submit_all(profile: gr.OAuthProfile | None):
@@ -299,6 +299,11 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                     chatbot = gr.Chatbot(
                         height=300
                     )
+                    remaining_queries = gr.Textbox(
+                        label="Remaining Queries",
+                        value="Remaining queries this hour: 5/5",
+                        interactive=False
+                    )
                     with gr.Row():
                         question_input = gr.Textbox(
                             label="Ask a question",
@@ -316,24 +321,18 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                         )
                     with gr.Row():
                         submit_btn = gr.Button("Send", variant="primary")
-                        clear_btn = gr.Button("Clear Chat", variant="secondary")
             
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
                 inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
+                outputs=[chatbot, question_input, remaining_queries]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
                 inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
-            )
-            
-            clear_btn.click(
-                fn=clear_chat,
-                outputs=[chatbot, question_input, file_upload]
+                outputs=[chatbot, question_input, remaining_queries]
             )
         
         # Tab 2: Evaluation Interface
@@ -390,4 +389,4 @@ if __name__ == "__main__":
     print("-"*(60 + len(" App Starting ")) + "\n")
 
     print("Launching Gradio Interface for TurboNerd Agent...")
-    demo.launch(debug=True, share=False)
+    demo.launch(debug=True, share=False, api_name=None)

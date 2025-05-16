@@ -58,6 +58,7 @@ load_dotenv()
 #Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape. When Web_search does not return a result, use Tavily Search.
 
 SYSTEM_PROMPT = """Answer the following questions as best you can. If it is a basic question, answer it using your internal knowledge. If it is a complex question that requires facts, use the tools to answer it DO NOT rely on your internal knowledge unless the tools fail to provide a result:
+For simple questions, you can use your internal knowledge and answer directly.
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
