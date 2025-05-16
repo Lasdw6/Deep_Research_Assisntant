@@ -93,15 +93,13 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         else:
             formatted_response = response
         
-        # Add question and response to history in the correct format
-        history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": formatted_response})
+        # Add question and response to history in the correct format (as tuples)
+        history.append((question, formatted_response))
         
         return history, ""
     except Exception as e:
         error_message = f"Error: {str(e)}"
-        history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": error_message})
+        history.append((question, error_message))
         return history, ""
 
 def clear_chat():
@@ -261,15 +259,15 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
 
             **Research & Analysis:**
             - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Cross-reference this information with their Wikipedia page and any recent news articles."
-            - "Analyze this image of a mathematical equation, explain the concepts involved, and find similar problems from textbooks or academic papers."
+            - "Analyze this image of a mathematical equation, and find an academic papers that use this equation."
 
             **Multi-Modal Analysis:**
-            - "I have an interview recording and a transcript. Compare the audio transcription with the provided transcript, identify any discrepancies, and summarize the key points discussed."
-            - "This image shows a historical document. Extract the text, identify the time period, and find related historical events from that era."
+            - "I have an interview recording and a transcript. Compare the audio transcription with the provided transcript, identify any discrepancies."
+            - "This image shows a historical document. Find me the historical events from that era."
 
             **Code & Data Processing:**
-            - "I have a Python script and an Excel file with data. Analyze the code's functionality, identify potential optimizations, and suggest improvements based on the data patterns."
-            - "This code contains a bug. Debug it, explain the issue, and propose a solution. Then test the solution with the provided test cases."
+            - "I have a Python script and an Excel file with data. Analyze the code's functionality and suggest improvements based on the data patterns."
+            - "This code contains a bug. Debug it, explain the issue, and propose a solution."
 
             The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
             """)
