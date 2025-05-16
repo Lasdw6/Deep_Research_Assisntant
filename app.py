@@ -275,7 +275,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             with gr.Row():
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(
-                        height=600
+                        height=300
                     )
                     with gr.Row():
                         question_input = gr.Textbox(

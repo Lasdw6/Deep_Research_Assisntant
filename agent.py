@@ -1584,7 +1584,7 @@ class TurboNerd:
 
 # Example usage:
 if __name__ == "__main__":
-    agent = TurboNerd(max_iterations=25)
+    agent = TurboNerd(max_iterations=35)
     response = agent("""The attached Excel file contains the sales of menu items for a local fast-food chain. What were the total sales that the chain made from food (not including drinks)? Express your answer in USD with two decimal places. TEMPP\excel.xlsx """)
     print("\nFinal Response:")
     print(response)
