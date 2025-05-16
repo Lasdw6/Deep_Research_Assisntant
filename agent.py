@@ -57,7 +57,7 @@ load_dotenv()
 #webpage_scrape: Scrape content from a specific webpage URL when Tavily Search and Wikipedia Search do not return a result. Provide a valid URL to extract information from a particular web page.
 #Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape. When Web_search does not return a result, use Tavily Search.
 
-SYSTEM_PROMPT = """Answer the following questions as best you can. DO NOT rely on your internal knowledge unless the tools fail to provide a result:
+SYSTEM_PROMPT = """Answer the following questions as best you can. If it is a basic question, answer it using your internal knowledge. If it is a complex question that requires facts, use the tools to answer it DO NOT rely on your internal knowledge unless the tools fail to provide a result:
 
 The way you use the tools is by specifying a json blob.
 Specifically, this json should have an `action` key (with the name of the tool to use) and an `action_input` key (with the input to the tool going here).
@@ -1318,7 +1318,7 @@ def create_agent_graph() -> StateGraph:
 
 # Main agent class that integrates with your existing app.py
 class TurboNerd:
-    def __init__(self, max_iterations=25, apify_api_token=None):
+    def __init__(self, max_iterations=35, apify_api_token=None):
         self.graph = create_agent_graph()
         self.tools = tools_config
         self.max_iterations = max_iterations  # Maximum iterations for the graph
