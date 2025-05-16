@@ -273,14 +273,12 @@ def run_python_code(code: str):
             
         return '\n'.join(cleaned_output)
                 
-    except SyntaxError as e:
-        return f"Syntax Error: {str(e)}"
-    except NameError as e:
-        return f"Name Error: {str(e)}"
-    except ZeroDivisionError as e:
-        return f"Zero Division Error: {str(e)}"
     except Exception as e:
-        return f"Error executing code: {str(e)}"
+        # Get the error type name without the "Error" suffix if it exists
+        error_type = type(e).__name__.replace('Error', '')
+        # Add a space between camel case words
+        error_type = re.sub(r'([a-z])([A-Z])', r'\1 \2', error_type)
+        return f"{error_type} Error: {str(e)}. Try again with a different code or try a different tool."
 
 def scrape_webpage(url: str, keywords: Optional[List[str]] = None) -> str:
     """
@@ -1204,7 +1202,7 @@ def process_image(image_path: str, image_url: Optional[str] = None, file_content
                             {
                                 "role": "user",
                                 "content": [
-                                    {"type": "text", "text": "Describe this image in detail, including the main subject, colors, setting, and any notable features. Be factual and objective. For a chess posistion, look at the board and describe the position of the pieces accurately.Go step by step and be very detailed about the position of the pieces."},
+                                    {"type": "text", "text": "Describe this image in detail, including the main subject, colors, setting, and any notable features. Be factual and objective. For a chess posistion, 1. List all the pieces and their positions (e.g., 'White King at e1', 'Black Queen at d8') 2. List any special conditions (castling rights, en passant, etc.) 3. Provide the position in FEN notation 4. Convert the position to PGN format"},
                                     {
                                         "type": "image_url",
                                         "image_url": {

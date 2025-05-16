@@ -1585,17 +1585,7 @@ class TurboNerd:
 # Example usage:
 if __name__ == "__main__":
     agent = TurboNerd(max_iterations=25)
-    response = agent("""Given this table defining * on the set S = {a, b, c, d, e}
-
-|*|a|b|c|d|e|
-|---|---|---|---|---|---|
-|a|a|b|c|b|d|
-|b|b|c|a|e|c|
-|c|c|a|b|b|a|
-|d|b|e|b|e|d|
-|e|d|b|a|d|c|
-
-provide the subset of S involved in any possible counter-examples that prove * is not commutative. Provide your answer as a comma separated list of the elements in the set in alphabetical order.""")
+    response = agent("""The attached Excel file contains the sales of menu items for a local fast-food chain. What were the total sales that the chain made from food (not including drinks)? Express your answer in USD with two decimal places. TEMPP\excel.xlsx """)
     print("\nFinal Response:")
     print(response)
 
