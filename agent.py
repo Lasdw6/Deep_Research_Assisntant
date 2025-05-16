@@ -295,10 +295,79 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     messages_for_llm = [system_msg] + llm_input_core_messages
     
     # Get response from the assistant
-    response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
-    print(f"Assistant response type: {type(response)}")
-    content_preview = response.content[:300].replace('\n', ' ')
-    print(f"Response content (first 300 chars): {content_preview}...")
+    try:
+        response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
+        print(f"Assistant response type: {type(response)}")
+        
+        # Check for empty response
+        if response is None or not hasattr(response, 'content') or not response.content or len(response.content.strip()) < 20:
+            print("Warning: Received empty or very short response from LLM")
+            
+            # Create a new response object if it's None
+            if response is None:
+                from langchain_core.messages import AIMessage
+                response = AIMessage(content="")
+                print("Created new AIMessage object for None response")
+            
+            # Check what kind of information we have in the last observation
+            last_observation = None
+            for msg in reversed(core_history):
+                if isinstance(msg, AIMessage) and "Observation:" in msg.content:
+                    last_observation = msg.content
+                    break
+                    
+            # Create an appropriate fallback response
+            if last_observation and "python_code" in state.get("current_tool", ""):
+                # If last tool was Python code, try to formulate a reasonable next step
+                print("Creating fallback response for empty response after Python code execution")
+                fallback_content = (
+                    "Thought: I've analyzed the results of the code execution. Based on the observations, "
+                    "I need to determine the final answer.\n\n"
+                    "Final Answer: "
+                )
+                
+                # Look for common patterns in Python output that might indicate results
+                import re
+                result_match = re.search(r'(\[.+?\]|\{.+?\}|[A-Za-z,\s]+)$', last_observation)
+                if result_match:
+                    fallback_content += result_match.group(1).strip()
+                else:
+                    # Generic fallback based on the executed code
+                    fallback_content += "Based on the code analysis, but the exact result was unclear from the output."
+            else:
+                # Generic fallback suggesting a reasonable next search
+                print("Creating generic fallback response for empty LLM response")
+                
+                # Make sure we have a valid query
+                query = ""
+                if full_current_history and hasattr(full_current_history[0], 'content'):
+                    query = full_current_history[0].content[:100]  # Limit to first 100 chars
+                else:
+                    query = "additional information for this question"
+                    
+                fallback_content = (
+                    "Thought: I need more information to answer this question correctly. Let me search for additional details.\n\n"
+                    "Action: \n```json\n"
+                    "{\n"
+                    '  "action": "tavily_search",\n'
+                    f'  "action_input": {{"query": "{query}", "search_depth": "comprehensive"}}\n'
+                    "}\n```"
+                )
+                
+            # Use our fallback content instead of the empty response
+            response.content = fallback_content
+            print(f"Created fallback response: {fallback_content[:100]}...")
+        else:
+            content_preview = response.content[:300].replace('\n', ' ')
+            print(f"Response content (first 300 chars): {content_preview}...")
+    except Exception as e:
+        print(f"Error in LLM invocation: {str(e)}")
+        # Create a fallback response in case of LLM errors
+        from langchain_core.messages import AIMessage
+        response = AIMessage(content=(
+            "Thought: I encountered an error in processing. Let me try to proceed with what I know.\n\n"
+            "Final Answer: Unable to complete the task due to an error in processing."
+        ))
     
     # Extract the action JSON from the response text
     action_json = extract_json_from_text(response.content)
@@ -580,67 +649,94 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
     """Node that executes Python code."""
     print("Python Code Tool Called...\n\n")
     
+    # Ensure AIMessage is available in this scope
+    from langchain_core.messages import AIMessage
+    
     # Extract tool arguments
     action_input = state.get("action_input", {})
     print(f"Python code action_input: {action_input}")
     print(f"Action input type: {type(action_input)}")
     
-    # First try our specialized extraction function that handles nested structures
-    code = extract_python_code_from_complex_input(action_input)
+    # Extract code using specialized functions
+    # First try the extract_python_code_from_complex_input function from tools
+    from tools import extract_python_code_from_complex_input
     
-    # If extraction failed or returned the same complex structure, fallback to regex
-    if code == action_input or (isinstance(code, str) and code.strip().startswith('{') and '"code"' in code):
-        # Convert the action_input to string for regex processing if it's a dictionary
-        if isinstance(action_input, dict):
-            action_input_str = json.dumps(action_input)
-        else:
-            action_input_str = str(action_input)
-        
-        # First, attempt direct regex extraction which is most robust for nested structures
-        import re
-        
-        # Try to extract code using regex patterns for different nesting levels
-        # Pattern for deeply nested code
-        deep_pattern = re.search(r'"code"\s*:\s*"(.*?)(?<!\\)"\s*}\s*}\s*}', action_input_str, re.DOTALL)
-        if deep_pattern:
-            extracted_code = deep_pattern.group(1)
-            # Unescape the extracted code
-            extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-            code = extracted_code
-            print(f"Extracted deeply nested code using regex: {repr(code[:100])}")
-        
-        # Pattern for single level nesting
-        elif '"code"' in action_input_str:
-            pattern = re.search(r'"code"\s*:\s*"(.*?)(?<!\\)"', action_input_str, re.DOTALL)
-            if pattern:
-                extracted_code = pattern.group(1)
-                # Unescape the extracted code
-                extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
-                code = extracted_code
-                print(f"Extracted code using regex: {repr(code[:100])}")
-        
-        # If regex extraction failed, try dictionary approaches
-        if code == action_input and isinstance(action_input, dict):
-            # Direct code access
-            if "code" in action_input:
-                code = action_input["code"]
-                print(f"Extracted code directly from dict: {repr(code[:100])}")
-            
-            # Nested JSON structure handling
-            elif isinstance(action_input.get("code", ""), str) and action_input.get("code", "").strip().startswith('{'):
+    # Debugging: Print full action_input for analysis
+    if isinstance(action_input, dict) and "code" in action_input:
+        print(f"Original code field (first 100 chars): {repr(action_input['code'][:100])}")
+    elif isinstance(action_input, str):
+        print(f"Original string input (first 100 chars): {repr(action_input[:100])}")
+    
+    # Try to detect and fix double nesting issues
+    if isinstance(action_input, dict) and "code" in action_input:
+        code_value = action_input["code"]
+        if isinstance(code_value, str) and code_value.strip().startswith('{') and '"action"' in code_value:
+            print("Detected doubly nested JSON structure - attempting to fix")
+            try:
+                import json
+                import re
+                
+                # First try to fix common escape issues that might cause JSON decode errors
+                # Replace escaped single quotes with temporary placeholders
+                fixed_code = code_value.replace("\\'", "___SQUOTE___")
+                # Replace escaped double quotes with proper JSON escapes
+                fixed_code = fixed_code.replace('\\"', '\\\\"')
+                # Fix newlines
+                fixed_code = fixed_code.replace('\\n', '\\\\n')
+                
                 try:
-                    nested_json = json.loads(action_input["code"])
-                    if "action_input" in nested_json and isinstance(nested_json["action_input"], dict) and "code" in nested_json["action_input"]:
-                        code = nested_json["action_input"]["code"]
-                        print(f"Extracted code from nested JSON: {repr(code[:100])}")
+                    # Try to parse the fixed JSON
+                    nested_json = json.loads(fixed_code)
                 except:
-                    # If parsing fails, use the code field as-is
-                    pass
-        
-        # If still no code, use the action_input directly (string case)
-        if code == action_input and isinstance(action_input, str):
-            code = action_input
-            print(f"Using action_input as code: {repr(code[:100])}")
+                    # If that fails, try a more aggressive approach with regex
+                    print("JSON parsing failed, trying regex approach")
+                    action_match = re.search(r'"action"\s*:\s*"([^"]+)"', code_value)
+                    code_match = re.search(r'"code"\s*:\s*"((?:[^"\\]|\\.)*)"', code_value)
+                    
+                    if action_match and code_match and action_match.group(1) == "python_code":
+                        # Extract the inner code and unescape it
+                        extracted_code = code_match.group(1)
+                        extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+                        print(f"Extracted Python code using regex: {extracted_code[:100]}")
+                        # Get run_python_code from tools
+                        return {
+                            "messages": state["messages"] + [AIMessage(content=f"Observation: {run_python_code(extracted_code)}")],
+                            "current_tool": None,
+                            "action_input": None
+                        }
+                
+                if isinstance(nested_json, dict) and "action" in nested_json and nested_json["action"] == "python_code":
+                    if "action_input" in nested_json and isinstance(nested_json["action_input"], dict) and "code" in nested_json["action_input"]:
+                        # We have a doubly nested structure - extract the innermost code
+                        actual_code = nested_json["action_input"]["code"]
+                        # Replace our placeholders back
+                        if isinstance(actual_code, str):
+                            actual_code = actual_code.replace("___SQUOTE___", "'")
+                        print(f"Successfully extracted code from doubly nested structure. First 100 chars: {repr(actual_code[:100])}")
+                        code = actual_code
+                    else:
+                        code = code_value
+                else:
+                    code = code_value
+            except Exception as e:
+                print(f"Error attempting to fix nested structure: {e}")
+                # Fall back to direct regex extraction
+                import re
+                code_match = re.search(r'code":\s*"((?:[^"\\]|\\.)*)(?<!\\)"', code_value)
+                if code_match:
+                    extracted_code = code_match.group(1)
+                    # Unescape the extracted code
+                    extracted_code = extracted_code.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+                    code = extracted_code
+                    print(f"Extracted code using fallback regex: {repr(code[:100])}")
+                else:
+                    # If all parsing fails, try to use extract_python_code_from_complex_input
+                    from tools import extract_python_code_from_complex_input
+                    code = extract_python_code_from_complex_input(action_input)
+        else:
+            code = extract_python_code_from_complex_input(action_input)
+    else:
+        code = extract_python_code_from_complex_input(action_input)
     
     print(f"Final code to execute: {repr(code[:100])}...")
     

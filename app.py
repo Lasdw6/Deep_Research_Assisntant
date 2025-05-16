@@ -66,13 +66,15 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         else:
             response = agent(question)
         
-        # Add question and response to history
-        history.append([question, response])
+        # Add question and response to history in the correct format
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": response})
         
         return history, ""
     except Exception as e:
         error_message = f"Error: {str(e)}"
-        history.append([question, error_message])
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": error_message})
         return history, ""
 
 def clear_chat():
