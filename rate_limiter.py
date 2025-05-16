@@ -5,22 +5,19 @@ import threading
 class QueryRateLimiter:
     def __init__(self, max_queries_per_hour: int = 10):
         """
-        Initialize rate limiter for queries per hour.
+        Initialize rate limiter for global queries per hour.
         
         Args:
-            max_queries_per_hour: Maximum number of queries allowed per hour
+            max_queries_per_hour: Maximum number of queries allowed per hour globally
         """
         self.max_queries = max_queries_per_hour
-        self.queries = defaultdict(list)  # ip_address -> list of timestamps
+        self.queries = []  # List of timestamps for all queries
         self.lock = threading.Lock()
     
-    def is_allowed(self, ip_address: str) -> bool:
+    def is_allowed(self, _: str = None) -> bool:
         """
-        Check if an IP address is allowed to make another query.
+        Check if another query is allowed within the hourly limit.
         
-        Args:
-            ip_address: IP address of the client
-            
         Returns:
             bool: True if query is allowed, False if rate limited
         """
@@ -29,22 +26,19 @@ class QueryRateLimiter:
         
         with self.lock:
             # Remove queries older than 1 hour
-            self.queries[ip_address] = [t for t in self.queries[ip_address] if t > hour_ago]
+            self.queries = [t for t in self.queries if t > hour_ago]
             
             # Check if under rate limit
-            if len(self.queries[ip_address]) < self.max_queries:
-                self.queries[ip_address].append(current_time)
+            if len(self.queries) < self.max_queries:
+                self.queries.append(current_time)
                 return True
             
             return False
     
-    def get_remaining_queries(self, ip_address: str) -> int:
+    def get_remaining_queries(self, _: str = None) -> int:
         """
-        Get number of remaining queries for an IP address in the current hour.
+        Get number of remaining queries in the current hour.
         
-        Args:
-            ip_address: IP address of the client
-            
         Returns:
             int: Number of remaining queries
         """
@@ -53,27 +47,24 @@ class QueryRateLimiter:
         
         with self.lock:
             # Remove queries older than 1 hour
-            self.queries[ip_address] = [t for t in self.queries[ip_address] if t > hour_ago]
+            self.queries = [t for t in self.queries if t > hour_ago]
             
-            return self.max_queries - len(self.queries[ip_address])
+            return self.max_queries - len(self.queries)
     
-    def get_time_until_reset(self, ip_address: str) -> float:
+    def get_time_until_reset(self, _: str = None) -> float:
         """
-        Get time in seconds until the rate limit resets for an IP address.
+        Get time in seconds until the rate limit resets.
         
-        Args:
-            ip_address: IP address of the client
-            
         Returns:
             float: Seconds until rate limit reset
         """
         current_time = time.time()
         
         with self.lock:
-            if not self.queries[ip_address]:
+            if not self.queries:
                 return 0.0
             
-            oldest_query = min(self.queries[ip_address])
+            oldest_query = min(self.queries)
             reset_time = oldest_query + 3600  # 1 hour in seconds
             
             return max(0.0, reset_time - current_time) 

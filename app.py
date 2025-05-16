@@ -157,6 +157,17 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         session_histories[session_id].append({"role": "assistant", "content": formatted_response})
         
         return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
+    except RecursionError as e:
+        error_message = (
+            "I apologize, but I've reached my thinking limit while trying to answer your question. "
+            "This usually happens when the question requires too many steps to solve and therefore too much money"
+            "Could you please try breaking down your question into smaller, more specific parts? "
+            "For example, instead of asking about multiple things at once, try asking about one aspect at a time."
+        )
+        history.append({"role": "assistant", "content": error_message})
+        if session_id in session_histories:
+            session_histories[session_id].append({"role": "assistant", "content": error_message})
+        return history, "", "Remaining queries this hour: 5/5"
     except Exception as e:
         error_message = f"Error: {str(e)}"
         history.append({"role": "assistant", "content": error_message})
