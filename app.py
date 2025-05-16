@@ -58,6 +58,10 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         if session_id not in session_histories:
             session_histories[session_id] = []
         
+        # Add the question to both histories immediately
+        history.append({"role": "user", "content": question})
+        session_histories[session_id].append({"role": "user", "content": question})
+        
         # Check rate limit
         if not query_limiter.is_allowed(session_id):
             remaining_time = query_limiter.get_time_until_reset(session_id)
@@ -65,9 +69,8 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                 f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
                 f"Please wait {int(remaining_time)} seconds before trying again."
             )
-            history.append({"role": "user", "content": question})
             history.append({"role": "assistant", "content": error_message})
-            session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": error_message}])
+            session_histories[session_id].append({"role": "assistant", "content": error_message})
             return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
@@ -102,15 +105,18 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Format the session-specific conversation history
         conversation_history = format_history_for_agent(session_histories[session_id])
         
-        # Add context about the conversation history
-        if conversation_history:
-            question = f"Previous conversation in this session:\n{conversation_history}\n\nCurrent question: {question}"
+        # Prepare the full context for the agent
+        full_context = {
+            "question": question,
+            "conversation_history": conversation_history,
+            "session_id": session_id
+        }
         
         # Get response from agent with attachments if available
         if attachments:
-            response = agent(question, attachments)
+            response = agent(full_context, attachments)
         else:
-            response = agent(question)
+            response = agent(full_context)
         
         # Format the response to show thought process
         formatted_response = ""
@@ -142,18 +148,16 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Add remaining queries info
         remaining_queries = query_limiter.get_remaining_queries(session_id)
         
-        # Add question and response to both the current history and session history
-        history.append({"role": "user", "content": question})
+        # Add response to both histories
         history.append({"role": "assistant", "content": formatted_response})
-        session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": formatted_response}])
+        session_histories[session_id].append({"role": "assistant", "content": formatted_response})
         
         return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
     except Exception as e:
         error_message = f"Error: {str(e)}"
-        history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": error_message})
         if session_id in session_histories:
-            session_histories[session_id].extend([{"role": "user", "content": question}, {"role": "assistant", "content": error_message}])
+            session_histories[session_id].append({"role": "assistant", "content": error_message})
         return history, "", "Remaining queries this hour: 5/5"
 
 def clear_chat():
