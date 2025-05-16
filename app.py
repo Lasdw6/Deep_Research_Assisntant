@@ -255,10 +255,23 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
         with gr.TabItem("🤓", id="chat"):
             gr.Markdown("""
             ## Chat with TurboNerd 🤓
-            Ask any question and get an answer from the TurboNerd. The agent can search the web, Wikipedia, and more.
-            Try asking something like:\n
-            - What is the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists?\n
-            - Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.
+            Ask any question and get an answer from TurboNerd. The agent can search the web, Wikipedia, analyze images, process audio, and more!
+
+            ### Complex Example Questions:
+
+            **Research & Analysis:**
+            - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Cross-reference this information with their Wikipedia page and any recent news articles."
+            - "Analyze this image of a mathematical equation, explain the concepts involved, and find similar problems from textbooks or academic papers."
+
+            **Multi-Modal Analysis:**
+            - "I have an interview recording and a transcript. Compare the audio transcription with the provided transcript, identify any discrepancies, and summarize the key points discussed."
+            - "This image shows a historical document. Extract the text, identify the time period, and find related historical events from that era."
+
+            **Code & Data Processing:**
+            - "I have a Python script and an Excel file with data. Analyze the code's functionality, identify potential optimizations, and suggest improvements based on the data patterns."
+            - "This code contains a bug. Debug it, explain the issue, and propose a solution. Then test the solution with the provided test cases."
+
+            The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
             """)
             
             with gr.Row():
