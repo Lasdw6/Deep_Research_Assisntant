@@ -47,7 +47,8 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                 f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
                 f"Please wait {int(remaining_time)} seconds before trying again."
             )
-            history.append((question, error_message))
+            history.append({"role": "user", "content": question})
+            history.append({"role": "assistant", "content": error_message})
             return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
@@ -115,13 +116,15 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Add remaining queries info
         remaining_queries = query_limiter.get_remaining_queries(ip_address)
         
-        # Add question and response to history in the correct format (as tuples)
-        history.append((question, formatted_response))
+        # Add question and response to history in the correct format
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": formatted_response})
         
         return history, "", f"Remaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
     except Exception as e:
         error_message = f"Error: {str(e)}"
-        history.append((question, error_message))
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": error_message})
         return history, "", "Remaining queries this hour: 5/5"
 
 def clear_chat():
