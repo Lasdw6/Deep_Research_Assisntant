@@ -38,7 +38,14 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     try:
         # Get client IP for rate limiting using Gradio's request context
         request = gr.Request()
-        ip_address = request.client.host if request and hasattr(request, 'client') else "127.0.0.1"
+        # Try to get IP from X-Forwarded-For header first, then fallback to client.host
+        ip_address = None
+        if request and hasattr(request, 'headers'):
+            ip_address = request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+        if not ip_address and request and hasattr(request, 'client'):
+            ip_address = request.client.host
+        if not ip_address:
+            ip_address = "127.0.0.1"
         print(f"Request from IP: {ip_address}")
         
         # Check rate limit
