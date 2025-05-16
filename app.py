@@ -5,10 +5,15 @@ import inspect
 import pandas as pd
 import base64
 from agent import TurboNerd
+from rate_limiter import QueryRateLimiter
+from flask import request
 
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 ALLOWED_FILE_EXTENSIONS = [".mp3", ".xlsx", ".py", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".md", ".json", ".csv", ".yml", ".yaml", ".html", ".css", ".js"]
+
+# Initialize rate limiter (10 queries per hour)
+query_limiter = QueryRateLimiter(max_queries_per_hour=5)
 
 # --- Basic Agent Definition ---
 class BasicAgent:
@@ -31,6 +36,19 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         return history, ""
     
     try:
+        # Get client IP or session ID for rate limiting
+        user_id = request.remote_addr if request else "127.0.0.1"
+        
+        # Check rate limit
+        if not query_limiter.is_allowed(user_id):
+            remaining_time = query_limiter.get_time_until_reset(user_id)
+            error_message = (
+                f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. "
+                f"Please wait {int(remaining_time)} seconds before trying again."
+            )
+            history.append((question, error_message))
+            return history, ""
+        
         # Initialize agent
         agent = TurboNerd()
         
@@ -92,6 +110,10 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                     formatted_response += f"{section}\n\n"
         else:
             formatted_response = response
+        
+        # Add remaining queries info
+        remaining_queries = query_limiter.get_remaining_queries(user_id)
+        formatted_response += f"\n\n---\nRemaining queries this hour: {remaining_queries}/{query_limiter.max_queries}"
         
         # Add question and response to history in the correct format (as tuples)
         history.append((question, formatted_response))

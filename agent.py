@@ -270,12 +270,12 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     """Assistant node that processes messages and decides on next action."""
     from langchain_core.messages import AIMessage  # Add import at the start of the function
     
-    print("Assistant Called...\n\n")
+    print("\n=== Assistant Node ===")
     
     full_current_history = state["messages"]
     iteration_count = state.get("iteration_count", 0)
     iteration_count += 1 # Increment for the current call
-    print(f"Current Iteration: {iteration_count}")
+    print(f"Iteration: {iteration_count}")
 
     # Prepare messages for the LLM
     system_msg = SystemMessage(content=SYSTEM_PROMPT)
@@ -289,7 +289,7 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     # Prune if it's time (e.g., after every 5th completed iteration, so check for current iteration 6, 11, etc.)
     # Iteration 1-5: no pruning. Iteration 6: prune.
     if iteration_count > 5 and (iteration_count - 1) % 5 == 0:
-        print(f"Pruning message history for LLM call at iteration {iteration_count}.")
+        print(f"Pruning message history at iteration {iteration_count}")
         llm_input_core_messages = prune_messages_for_llm(core_history, num_recent_to_keep=6)
     else:
         llm_input_core_messages = core_history
@@ -300,7 +300,6 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     # Get response from the assistant
     try:
         response = chat_with_tools.invoke(messages_for_llm, stop=["Observation:"])
-        print(f"Assistant response type: {type(response)}")
         
         # Check for empty response
         if response is None or not hasattr(response, 'content') or not response.content or len(response.content.strip()) < 20:
@@ -320,7 +319,6 @@ def assistant(state: AgentState) -> Dict[str, Any]:
                     
             # Create an appropriate fallback response
             if last_observation and "python_code" in state.get("current_tool", ""):
-                # If last tool was Python code, try to formulate a reasonable next step
                 print("Creating fallback response for empty response after Python code execution")
                 fallback_content = (
                     "Thought: I've analyzed the results of the code execution. Based on the observations, "
@@ -361,7 +359,7 @@ def assistant(state: AgentState) -> Dict[str, Any]:
             print(f"Created fallback response: {fallback_content[:100]}...")
         else:
             content_preview = response.content[:300].replace('\n', ' ')
-            print(f"Response content (first 300 chars): {content_preview}...")
+            print(f"Response preview: {content_preview}...")
     except Exception as e:
         print(f"Error in LLM invocation: {str(e)}")
         # Create a fallback response in case of LLM errors
@@ -372,7 +370,7 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     
     # Extract the action JSON from the response text
     action_json = extract_json_from_text(response.content)
-    print(f"Extracted action JSON: {action_json}")
+    print(f"Extracted action: {action_json.get('action') if action_json else 'None'}")
     
     assistant_response_message = AIMessage(content=response.content)
     
@@ -396,13 +394,11 @@ def assistant(state: AgentState) -> Dict[str, Any]:
                             tool_name = nested_json["action"]
                             tool_input = nested_json["action_input"]
                             print(f"Unwrapped nested JSON. New tool: {tool_name}")
-                            print(f"New tool input: {tool_input}")
                             break
                     except json.JSONDecodeError:
                         continue
         
         print(f"Using tool: {tool_name}")
-        print(f"Tool input: {tool_input}")
         
         tool_call_id = f"call_{random.randint(1000000, 9999999)}"
         
@@ -413,6 +409,7 @@ def assistant(state: AgentState) -> Dict[str, Any]:
         state_update["current_tool"] = None
         state_update["action_input"] = None
         
+    print("=== End Assistant Node ===\n")
     return state_update
 
 def extract_json_from_text(text: str) -> dict:
@@ -651,76 +648,84 @@ def extract_json_from_text(text: str) -> dict:
 
 def python_code_node(state: AgentState) -> Dict[str, Any]:
     """Node that executes Python code."""
-    print("Python Code Tool Called...\n\n")
+    print("\n=== Python Code Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Python code action_input: {action_input}")
-    print(f"Action input type: {type(action_input)}")
-    
-    # Get the code string
-    code = ""
-    if isinstance(action_input, dict):
-        code = action_input.get("code", "")
-    elif isinstance(action_input, str):
-        code = action_input
-    
-    print(f"Original code field (first 100 chars): {code[:100]}")
-    
-    def extract_code_from_json(json_str):
-        """Recursively extract code from nested JSON structures."""
-        try:
-            parsed = json.loads(json_str)
-            if isinstance(parsed, dict):
-                # Check for direct code field
-                if "code" in parsed:
-                    return parsed["code"]
-                # Check for nested action_input structure
-                if "action_input" in parsed:
-                    inner_input = parsed["action_input"]
-                    if isinstance(inner_input, dict):
-                        if "code" in inner_input:
-                            return inner_input["code"]
-                        # If inner_input is also JSON string, recurse
-                        if isinstance(inner_input.get("code", ""), str) and inner_input["code"].strip().startswith("{"):
-                            return extract_code_from_json(inner_input["code"])
-            return json_str
-        except:
-            return json_str
-    
-    # Handle nested JSON structures
-    if isinstance(code, str) and code.strip().startswith("{"):
-        code = extract_code_from_json(code)
-        print("Extracted code from JSON structure")
-    
-    print(f"Final code to execute: {code[:100]}...")
-    
-    # Execute the code
     try:
-        result = run_python_code(code)
-        print(f"Code execution result: {result}")
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        print(f"Input: {action_input.get('code', '')[:100]}...")
         
-        # Format the observation
-        tool_message = AIMessage(
-            content=f"Observation: {result.strip()}"
-        )
+        # Get the code string
+        code = ""
+        if isinstance(action_input, dict):
+            code = action_input.get("code", "")
+        elif isinstance(action_input, str):
+            code = action_input
         
-        # Print the observation that will be sent back to the assistant
-        print("\n=== TOOL OBSERVATION ===")
-        content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-        print(content_preview)
-        print("=== END OBSERVATION ===\n")
+        print(f"Original code field (first 100 chars): {code[:100]}")
         
-        # Return the updated state
-        return {
-            "messages": state["messages"] + [tool_message],
-            "current_tool": None,  # Reset the current tool
-            "action_input": None   # Clear the action input
-        }
+        def extract_code_from_json(json_str):
+            """Recursively extract code from nested JSON structures."""
+            try:
+                parsed = json.loads(json_str)
+                if isinstance(parsed, dict):
+                    # Check for direct code field
+                    if "code" in parsed:
+                        return parsed["code"]
+                    # Check for nested action_input structure
+                    if "action_input" in parsed:
+                        inner_input = parsed["action_input"]
+                        if isinstance(inner_input, dict):
+                            if "code" in inner_input:
+                                return inner_input["code"]
+                            # If inner_input is also JSON string, recurse
+                            if isinstance(inner_input.get("code", ""), str) and inner_input["code"].strip().startswith("{"):
+                                return extract_code_from_json(inner_input["code"])
+                return json_str
+            except:
+                return json_str
+        
+        # Handle nested JSON structures
+        if isinstance(code, str) and code.strip().startswith("{"):
+            code = extract_code_from_json(code)
+            print("Extracted code from JSON structure")
+        
+        print(f"Final code to execute: {code[:100]}...")
+        
+        # Execute the code
+        try:
+            result = run_python_code(code)
+            print(f"Execution successful")
+            
+            # Format the observation
+            tool_message = AIMessage(
+                content=f"Observation: {result.strip()}"
+            )
+            
+            # Print the observation that will be sent back to the assistant
+            print("=== End Python Code Node ===\n")
+            
+            # Return the updated state
+            return {
+                "messages": state["messages"] + [tool_message],
+                "current_tool": None,  # Reset the current tool
+                "action_input": None   # Clear the action input
+            }
+        except Exception as e:
+            error_message = f"Error executing Python code: {str(e)}"
+            print(error_message)
+            tool_message = AIMessage(content=f"Observation: {error_message}")
+            print("=== End Python Code Node ===\n")
+            return {
+                "messages": state["messages"] + [tool_message],
+                "current_tool": None,
+                "action_input": None
+            }
     except Exception as e:
-        error_message = f"Error executing Python code: {str(e)}"
+        error_message = f"Error in Python code node: {str(e)}"
         print(error_message)
         tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Python Code Node ===\n")
         return {
             "messages": state["messages"] + [tool_message],
             "current_tool": None,
@@ -729,676 +734,476 @@ def python_code_node(state: AgentState) -> Dict[str, Any]:
 
 def webpage_scrape_node(state: AgentState) -> Dict[str, Any]:
     """Node that scrapes content from a specific webpage URL."""
-    print("Webpage Scrape Tool Called...\n\n")
+    print("\n=== Webpage Scrape Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Webpage scrape action_input: {action_input}")
-    
-    # Try different ways to extract the URL
-    url = ""
-    if isinstance(action_input, dict):
-        url = action_input.get("url", "")
-    elif isinstance(action_input, str):
-        url = action_input
-    
-    print(f"Scraping URL: '{url}'")
-    
-    # Safety check - don't run with empty URL
-    if not url:
-        result = "Error: No URL provided. Please provide a valid URL to scrape."
-    else:
-        # Call the webpage scraping function
-        result = scrape_webpage(url)
-    
-    print(f"Scraping result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    # Always prefix with "Observation:" for consistency in the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        url = action_input.get("url", "") if isinstance(action_input, dict) else action_input
+        print(f"URL: {url}")
+        
+        # Safety check - don't run with empty URL
+        if not url:
+            result = "Error: No URL provided. Please provide a valid URL to scrape."
+        else:
+            # Call the webpage scraping function
+            result = scrape_webpage(url)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Webpage Scrape Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in webpage scrape node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Webpage Scrape Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def wikipedia_search_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes Wikipedia search requests."""
-    print("Wikipedia Search Tool Called...\n\n")
+    print("\n=== Wikipedia Search Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Wikipedia search action_input: {action_input}")
-    
-    # Extract query and num_results
-    query = ""
-    num_results = 3  # Default
-    
-    if isinstance(action_input, dict):
-        query = action_input.get("query", "")
-        if "num_results" in action_input:
-            try:
-                num_results = int(action_input["num_results"])
-            except:
-                print("Invalid num_results, using default")
-    elif isinstance(action_input, str):
-        query = action_input
-    
-    print(f"Searching Wikipedia for: '{query}' (max results: {num_results})")
-    
-    # Safety check - don't run with empty query
-    if not query:
-        result = "Error: No search query provided. Please provide a valid query for Wikipedia search."
-    else:
-        # Call the Wikipedia search function
-        result = wikipedia_search(query, num_results)
-    
-    print(f"Wikipedia search result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        query = action_input.get("query", "") if isinstance(action_input, dict) else action_input
+        num_results = action_input.get("num_results", 3) if isinstance(action_input, dict) else 3
+        print(f"Query: {query} (max results: {num_results})")
+        
+        # Safety check - don't run with empty query
+        if not query:
+            result = "Error: No search query provided. Please provide a valid query for Wikipedia search."
+        else:
+            # Call the Wikipedia search function
+            result = wikipedia_search(query, num_results)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Wikipedia Search Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in Wikipedia search node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Wikipedia Search Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def tavily_search_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes Tavily search requests."""
-    print("Tavily Search Tool Called...\n\n")
+    print("\n=== Tavily Search Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Tavily search action_input: {action_input}")
-    
-    # Extract query and search_depth
-    query = ""
-    search_depth = "basic"  # Default
-    
-    if isinstance(action_input, dict):
-        query = action_input.get("query", "")
-        if "search_depth" in action_input:
-            depth = action_input["search_depth"]
-            if depth in ["basic", "comprehensive"]:
-                search_depth = depth
-    elif isinstance(action_input, str):
-        query = action_input
-    
-    print(f"Searching Tavily for: '{query}' (depth: {search_depth})")
-    
-    # Safety check - don't run with empty query
-    if not query:
-        result = "Error: No search query provided. Please provide a valid query for Tavily search."
-    else:
-        # Call the Tavily search function
-        result = tavily_search(query, search_depth)
-    
-    print(f"Tavily search result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        query = action_input.get("query", "") if isinstance(action_input, dict) else action_input
+        search_depth = action_input.get("search_depth", "basic") if isinstance(action_input, dict) else "basic"
+        print(f"Query: {query} (depth: {search_depth})")
+        
+        # Safety check - don't run with empty query
+        if not query:
+            result = "Error: No search query provided. Please provide a valid query for Tavily search."
+        else:
+            # Call the Tavily search function
+            result = tavily_search(query, search_depth)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Tavily Search Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in Tavily search node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Tavily Search Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def arxiv_search_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes ArXiv search requests."""
-    print("ArXiv Search Tool Called...\n\n")
+    print("\n=== ArXiv Search Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"ArXiv search action_input: {action_input}")
-    
-    # Extract query and max_results
-    query = ""
-    max_results = 5  # Default
-    
-    if isinstance(action_input, dict):
-        query = action_input.get("query", "")
-        if "max_results" in action_input:
-            try:
-                max_results = int(action_input["max_results"])
-                if max_results <= 0 or max_results > 10:
-                    max_results = 5  # Reset to default if out of range
-            except:
-                print("Invalid max_results, using default")
-    elif isinstance(action_input, str):
-        query = action_input
-    
-    print(f"Searching ArXiv for: '{query}' (max results: {max_results})")
-    
-    # Safety check - don't run with empty query
-    if not query:
-        result = "Error: No search query provided. Please provide a valid query for ArXiv search."
-    else:
-        # Call the ArXiv search function
-        result = arxiv_search(query, max_results)
-    
-    print(f"ArXiv search result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        query = action_input.get("query", "") if isinstance(action_input, dict) else action_input
+        max_results = action_input.get("max_results", 5) if isinstance(action_input, dict) else 5
+        print(f"Query: {query} (max results: {max_results})")
+        
+        # Safety check - don't run with empty query
+        if not query:
+            result = "Error: No search query provided. Please provide a valid query for ArXiv search."
+        else:
+            # Call the ArXiv search function
+            result = arxiv_search(query, max_results)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End ArXiv Search Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in ArXiv search node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End ArXiv Search Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def supabase_operation_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes Supabase database operations."""
-    print("Supabase Operation Tool Called...\n\n")
+    print("\n=== Supabase Operation Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Supabase operation action_input: {action_input}")
-    
-    # Extract required parameters
-    operation_type = ""
-    table = ""
-    data = None
-    filters = None
-    
-    if isinstance(action_input, dict):
-        operation_type = action_input.get("operation_type", "")
-        table = action_input.get("table", "")
-        data = action_input.get("data")
-        filters = action_input.get("filters")
-    
-    print(f"Supabase operation: {operation_type} on table {table}")
-    
-    # Safety check
-    if not operation_type or not table:
-        result = "Error: Both operation_type and table are required. operation_type should be one of: insert, select, update, delete"
-    else:
-        # Call the Supabase operation function
-        result = supabase_operation(operation_type, table, data, filters)
-    
-    print(f"Supabase operation result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        operation_type = action_input.get("operation_type", "") if isinstance(action_input, dict) else ""
+        table = action_input.get("table", "") if isinstance(action_input, dict) else ""
+        print(f"Operation: {operation_type} on table {table}")
+        
+        # Safety check
+        if not operation_type or not table:
+            result = "Error: Both operation_type and table are required. operation_type should be one of: insert, select, update, delete"
+        else:
+            # Call the Supabase operation function
+            result = supabase_operation(operation_type, table, action_input.get("data"), action_input.get("filters"))
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Supabase Operation Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in Supabase operation node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Supabase Operation Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def excel_to_text_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes Excel to Markdown table conversions."""
-    print("Excel to Text Tool Called...\n\n")
+    print("\n=== Excel to Text Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Excel to text action_input: {action_input}")
-    
-    # Extract required parameters
-    excel_path = ""
-    sheet_name = None
-    file_content = None
-    
-    if isinstance(action_input, dict):
-        excel_path = action_input.get("excel_path", "")
-        sheet_name = action_input.get("sheet_name")
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        excel_path = action_input.get("excel_path", "") if isinstance(action_input, dict) else ""
+        sheet_name = action_input.get("sheet_name") if isinstance(action_input, dict) else None
+        print(f"File: {excel_path} (sheet: {sheet_name or 'default'})")
         
-        # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input and action_input["file_content"]:
-            try:
-                file_content = base64.b64decode(action_input["file_content"])
-                print(f"Decoded attached file content, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error decoding file content from action_input: {e}")
-        
-        # Check if we should use a file from the attachments dictionary
-        if not file_content and excel_path and "attachments" in state and excel_path in state["attachments"]:
-            try:
-                attachment_data = state["attachments"][excel_path]
-                if attachment_data:  # Make sure it's not empty
-                    file_content = base64.b64decode(attachment_data)
-                    print(f"Using attachment '{excel_path}' from state, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error using attachment {excel_path}: {e}")
-    
-    print(f"Excel to text: path={excel_path}, sheet={sheet_name or 'default'}, has_attachment={file_content is not None}")
-    
-    # Safety check
-    if not excel_path and not file_content:
-        result = "Error: Either Excel file path or file content is required"
-    elif not file_content:
-        # If we have a path but no content, check if it's a local file that exists
-        local_file_path = Path(excel_path).expanduser().resolve()
-        if local_file_path.is_file():
-            # Local file exists, use it directly
-            result = excel_to_text(str(local_file_path), sheet_name, None)
+        # Safety check
+        if not excel_path:
+            result = "Error: Excel file path is required"
         else:
-            # No file content and path doesn't exist as a local file
-            result = f"Error: Excel file not found at {local_file_path} and no attachment data available"
-    else:
-        # We have file content, use it
-        result = excel_to_text(excel_path, sheet_name, file_content)
-    
-    print(f"Excel to text result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+            # Call the Excel to text function
+            result = excel_to_text(excel_path, sheet_name, action_input.get("file_content"))
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Excel to Text Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in Excel to text node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Excel to Text Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
-# Add a new node function for processing YouTube videos
 def process_youtube_video_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes YouTube videos."""
-    print("YouTube Video Processing Tool Called...\n\n")
+    print("\n=== YouTube Video Processing Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"YouTube video processing action_input: {action_input}")
-    
-    # Extract URL and other parameters
-    url = ""
-    summarize = True  # Default
-    
-    if isinstance(action_input, dict):
-        url = action_input.get("url", "")
-        # Check if summarize parameter exists and is a boolean
-        if "summarize" in action_input:
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        url = action_input.get("url", "") if isinstance(action_input, dict) else action_input
+        summarize = action_input.get("summarize", True) if isinstance(action_input, dict) else True
+        print(f"URL: {url} (summarize: {summarize})")
+        
+        # Safety check - don't run with empty URL
+        if not url:
+            result = "Error: No URL provided. Please provide a valid YouTube URL."
+        elif not url.startswith(("http://", "https://")) or not ("youtube.com" in url or "youtu.be" in url):
+            result = f"Error: Invalid YouTube URL format: {url}. Please provide a valid URL starting with http:// or https:// and containing youtube.com or youtu.be."
+        else:
+            # Call the YouTube processing function
             try:
-                summarize = bool(action_input["summarize"])
-            except:
-                print("Invalid summarize parameter, using default (True)")
-    elif isinstance(action_input, str):
-        # If action_input is just a string, assume it's the URL
-        url = action_input
-    
-    print(f"Processing YouTube video: '{url}' (summarize: {summarize})")
-    
-    # Safety check - don't run with empty URL
-    if not url:
-        result = "Error: No URL provided. Please provide a valid YouTube URL."
-    elif not url.startswith(("http://", "https://")) or not ("youtube.com" in url or "youtu.be" in url):
-        result = f"Error: Invalid YouTube URL format: {url}. Please provide a valid URL starting with http:// or https:// and containing youtube.com or youtu.be."
-    else:
-        # Call the YouTube processing function
-        try:
-            result = process_youtube_video(url, summarize)
-        except Exception as e:
-            result = f"Error processing YouTube video: {str(e)}\n\nThis could be due to:\n- The video is private or has been removed\n- Network connectivity issues\n- YouTube API changes\n- Rate limiting"
-    
-    print(f"YouTube processing result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+                result = process_youtube_video(url, summarize)
+            except Exception as e:
+                result = f"Error processing YouTube video: {str(e)}\n\nThis could be due to:\n- The video is private or has been removed\n- Network connectivity issues\n- YouTube API changes\n- Rate limiting"
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End YouTube Video Processing Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in YouTube video processing node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End YouTube Video Processing Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
-# Add after the existing tool nodes:
 def transcribe_audio_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes audio transcription requests."""
-    print("Audio Transcription Tool Called...\n\n")
+    print("\n=== Audio Transcription Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Audio transcription action_input: {action_input}")
-    
-    # Extract required parameters
-    audio_path = ""
-    language = None
-    file_content = None
-    
-    if isinstance(action_input, dict):
-        audio_path = action_input.get("audio_path", "")
-        language = action_input.get("language")
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        audio_path = action_input.get("audio_path", "") if isinstance(action_input, dict) else ""
+        language = action_input.get("language") if isinstance(action_input, dict) else None
+        print(f"File: {audio_path} (language: {language or 'auto-detect'})")
         
-        # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input and action_input["file_content"]:
-            try:
-                file_content = base64.b64decode(action_input["file_content"])
-                print(f"Decoded attached audio file content, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error decoding file content from action_input: {e}")
-        
-        # Check if we should use a file from the attachments dictionary
-        if not file_content and audio_path and "attachments" in state and audio_path in state["attachments"]:
-            try:
-                attachment_data = state["attachments"][audio_path]
-                if attachment_data:  # Make sure it's not empty
-                    file_content = base64.b64decode(attachment_data)
-                    print(f"Using attachment '{audio_path}' from state, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error using attachment {audio_path}: {e}")
-    
-    print(f"Audio transcription: path={audio_path}, language={language or 'auto-detect'}, has_attachment={file_content is not None}")
-    
-    # Safety check
-    if not audio_path:
-        result = "Error: Audio file path is required"
-    elif not file_content:
-        # If we have a path but no content, check if it's a local file that exists
-        local_file_path = Path(audio_path).expanduser().resolve()
-        if local_file_path.is_file():
-            # Local file exists, use it directly
-            result = transcribe_audio(str(local_file_path), None, language)
+        # Safety check
+        if not audio_path:
+            result = "Error: Audio file path is required"
         else:
-            # No file content and path doesn't exist as a local file
-            result = f"Error: Audio file not found at {local_file_path} and no attachment data available"
-    else:
-        # We have file content, use it
-        result = transcribe_audio(audio_path, file_content, language)
-    
-    print(f"Audio transcription result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+            # Call the transcribe audio function
+            result = transcribe_audio(audio_path, action_input.get("file_content"), language)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Audio Transcription Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in audio transcription node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Audio Transcription Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def process_image_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes image analysis requests."""
-    print("Image Processing Tool Called...\n\n")
+    print("\n=== Image Processing Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Image processing action_input: {action_input}")
-    
-    # Extract required parameters
-    image_path = ""
-    image_url = None
-    analyze_content = True  # Default to true
-    file_content = None
-    
-    if isinstance(action_input, dict):
-        image_path = action_input.get("image_path", "")
-        image_url = action_input.get("image_url")
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        image_path = action_input.get("image_path", "") if isinstance(action_input, dict) else ""
+        image_url = action_input.get("image_url") if isinstance(action_input, dict) else None
+        analyze_content = action_input.get("analyze_content", True) if isinstance(action_input, dict) else True
+        print(f"Source: {image_url or image_path} (analyze: {analyze_content})")
         
-        # Check if analyze_content parameter exists and is a boolean
-        if "analyze_content" in action_input:
-            try:
-                analyze_content = bool(action_input["analyze_content"])
-            except:
-                print("Invalid analyze_content parameter, using default (True)")
-        
-        # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input and action_input["file_content"]:
-            try:
-                file_content = base64.b64decode(action_input["file_content"])
-                print(f"Decoded attached image file content, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error decoding file content from action_input: {e}")
-        
-        # Check if we should use a file from the attachments dictionary
-        if not file_content and image_path and "attachments" in state and image_path in state["attachments"]:
-            try:
-                attachment_data = state["attachments"][image_path]
-                if attachment_data:  # Make sure it's not empty
-                    file_content = base64.b64decode(attachment_data)
-                    print(f"Using attachment '{image_path}' from state, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error using attachment {image_path}: {e}")
-    
-    print(f"Image processing: path={image_path}, url={image_url or 'None'}, analyze_content={analyze_content}, has_attachment={file_content is not None}")
-    
-    # Safety check
-    if not image_path and not image_url and not file_content:
-        result = "Error: Either image path, image URL, or file content is required"
-    elif not file_content and not image_url:
-        # If we have a path but no content, check if it's a local file that exists
-        local_file_path = Path(image_path).expanduser().resolve()
-        if local_file_path.is_file():
-            # Local file exists, use it directly
-            result = process_image(str(local_file_path), image_url, None, analyze_content)
+        # Safety check
+        if not image_path and not image_url:
+            result = "Error: Either image path or image URL is required"
         else:
-            # No file content and path doesn't exist as a local file
-            result = f"Error: Image file not found at {local_file_path} and no attachment data available"
-    else:
-        # We have file content or URL, use it
-        result = process_image(image_path, image_url, file_content, analyze_content)
-    
-    print(f"Image processing result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+            # Call the process image function
+            result = process_image(image_path, image_url, action_input.get("file_content"), analyze_content)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Image Processing Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in image processing node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Image Processing Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def read_file_node(state: AgentState) -> Dict[str, Any]:
     """Node that reads text file contents."""
-    print("File Reading Tool Called...\n\n")
+    print("\n=== File Reading Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"File reading action_input: {action_input}")
-    
-    # Extract required parameters
-    file_path = ""
-    line_start = None
-    line_end = None
-    file_content = None
-    
-    if isinstance(action_input, dict):
-        file_path = action_input.get("file_path", "")
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        file_path = action_input.get("file_path", "") if isinstance(action_input, dict) else ""
+        line_start = action_input.get("line_start") if isinstance(action_input, dict) else None
+        line_end = action_input.get("line_end") if isinstance(action_input, dict) else None
+        print(f"File: {file_path} (lines: {line_start}-{line_end if line_end else 'end'})")
         
-        # Check if line range parameters exist
-        if "line_start" in action_input:
-            try:
-                line_start = int(action_input["line_start"])
-            except:
-                print("Invalid line_start parameter, using default (None)")
-        
-        if "line_end" in action_input:
-            try:
-                line_end = int(action_input["line_end"])
-            except:
-                print("Invalid line_end parameter, using default (None)")
-        
-        # Check if there's attached file content (base64 encoded) directly in the action_input
-        if "file_content" in action_input and action_input["file_content"]:
-            try:
-                file_content = base64.b64decode(action_input["file_content"])
-                print(f"Decoded attached file content, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error decoding file content from action_input: {e}")
-        
-        # Check if we should use a file from the attachments dictionary
-        if not file_content and file_path and "attachments" in state and file_path in state["attachments"]:
-            try:
-                attachment_data = state["attachments"][file_path]
-                if attachment_data:  # Make sure it's not empty
-                    file_content = base64.b64decode(attachment_data)
-                    print(f"Using attachment '{file_path}' from state, size: {len(file_content)} bytes")
-            except Exception as e:
-                print(f"Error using attachment {file_path}: {e}")
-    
-    print(f"File reading: path={file_path}, line_range={line_start}-{line_end if line_end else 'end'}, has_attachment={file_content is not None}")
-    
-    # Safety check
-    if not file_path:
-        result = "Error: File path is required"
-    elif not file_content:
-        # If we have a path but no content, check if it's a local file that exists
-        local_file_path = Path(file_path).expanduser().resolve()
-        if local_file_path.is_file():
-            # Local file exists, use it directly
-            result = read_file(str(local_file_path), None, line_start, line_end)
+        # Safety check
+        if not file_path:
+            result = "Error: File path is required"
         else:
-            # No file content and path doesn't exist as a local file
-            result = f"Error: File not found at {local_file_path} and no attachment data available"
-    else:
-        # We have file content, use it
-        result = read_file(file_path, file_content, line_start, line_end)
-    
-    print(f"File reading result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+            # Call the read file function
+            result = read_file(file_path, action_input.get("file_content"), line_start, line_end)
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End File Reading Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in file reading node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End File Reading Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 def process_online_document_node(state: AgentState) -> Dict[str, Any]:
     """Node that processes online PDFs and images."""
-    print("Online Document Processing Tool Called...\n\n")
+    print("\n=== Online Document Processing Node ===")
     
-    # Extract tool arguments
-    action_input = state.get("action_input", {})
-    print(f"Online document processing action_input: {action_input}")
-    
-    # Extract URL and document type
-    url = ""
-    doc_type = "auto"  # Default to auto-detection
-    
-    if isinstance(action_input, dict):
-        url = action_input.get("url", "")
-        doc_type = action_input.get("doc_type", "auto")
-    elif isinstance(action_input, str):
-        url = action_input
-    
-    print(f"Processing online document: '{url}' (type: {doc_type})")
-    
-    # Safety check - don't run with empty URL
-    if not url:
-        result = "Error: No URL provided. Please provide a valid URL to process."
-    elif not url.startswith(("http://", "https://")):
-        result = f"Error: Invalid URL format: {url}. Please provide a valid URL starting with http:// or https://."
-    else:
-        # Call the online document processing function
-        try:
-            result = process_online_document(url, doc_type)
-        except Exception as e:
-            result = f"Error processing online document: {str(e)}\n\nThis could be due to:\n- The document is not accessible\n- Network connectivity issues\n- Unsupported document type\n- Rate limiting"
-    
-    print(f"Online document processing result length: {len(result)}")
-    
-    # Format the observation to continue the ReAct cycle
-    tool_message = AIMessage(
-        content=f"Observation: {result.strip()}"
-    )
-    
-    # Print the observation that will be sent back to the assistant
-    print("\n=== TOOL OBSERVATION ===")
-    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
-    print(content_preview)
-    print("=== END OBSERVATION ===\n")
-    
-    # Return the updated state
-    return {
-        "messages": state["messages"] + [tool_message],
-        "current_tool": None,  # Reset the current tool
-        "action_input": None   # Clear the action input
-    }
+    try:
+        # Extract tool arguments
+        action_input = state.get("action_input", {})
+        url = action_input.get("url", "") if isinstance(action_input, dict) else action_input
+        doc_type = action_input.get("doc_type", "auto") if isinstance(action_input, dict) else "auto"
+        print(f"URL: {url} (type: {doc_type})")
+        
+        # Safety check - don't run with empty URL
+        if not url:
+            result = "Error: No URL provided. Please provide a valid URL to process."
+        elif not url.startswith(("http://", "https://")):
+            result = f"Error: Invalid URL format: {url}. Please provide a valid URL starting with http:// or https://."
+        else:
+            # Call the online document processing function
+            try:
+                result = process_online_document(url, doc_type)
+            except Exception as e:
+                result = f"Error processing online document: {str(e)}\n\nThis could be due to:\n- The document is not accessible\n- Network connectivity issues\n- Unsupported document type\n- Rate limiting"
+        
+        # Format the observation
+        tool_message = AIMessage(
+            content=f"Observation: {result.strip()}"
+        )
+        
+        print("=== End Online Document Processing Node ===\n")
+        
+        # Return the updated state
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
+    except Exception as e:
+        error_message = f"Error in online document processing node: {str(e)}"
+        print(error_message)
+        tool_message = AIMessage(content=f"Observation: {error_message}")
+        print("=== End Online Document Processing Node ===\n")
+        return {
+            "messages": state["messages"] + [tool_message],
+            "current_tool": None,
+            "action_input": None
+        }
 
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
