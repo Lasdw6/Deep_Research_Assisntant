@@ -257,7 +257,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             ## Chat with TurboNerd 🤓
             Ask any question and get an answer from TurboNerd. The agent can search the web, Wikipedia, analyze images, process audio, and more!
 
-            ### Complex Example Questions:
+            ### Example Questions:
 
             **Research & Analysis:**
             - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Cross-reference this information with their Wikipedia page and any recent news articles."
@@ -278,8 +278,25 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(
                         label="Conversation", 
-                        height=300,
-                        type="messages"
+                        height=600,
+                        type="messages",
+                        elem_id="chatbot",
+                        show_copy_button=True,
+                        show_label=True,
+                        container=True,
+                        bubble_full_width=False,
+                        rtl=False,
+                        show_share_button=False,
+                        show_retry_button=True,
+                        show_clear_button=True,
+                        avatar_images=(None, None),
+                        likeable=False,
+                        layout="panel",
+                        min_width=600,
+                        max_width=1200,
+                        scale=1,
+                        autoscroll=True,
+                        elem_classes=["chatbot-container"]
                     )
                     with gr.Row():
                         question_input = gr.Textbox(

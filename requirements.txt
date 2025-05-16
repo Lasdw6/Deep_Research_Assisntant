@@ -22,3 +22,5 @@ openai
 openpyxl
 Pillow
 numpy
+PyPDF2
+pymupdf

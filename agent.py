@@ -32,7 +32,8 @@ from tools import (
     transcribe_audio,
     extract_python_code_from_complex_input,
     process_image,
-    read_file
+    read_file,
+    process_online_document
 )
 
 load_dotenv()
@@ -544,7 +545,10 @@ def extract_json_from_text(text: str) -> dict:
                         "excel": "excel_to_text",
                         "youtube": "process_youtube_video",
                         "webpage": "webpage_scrape",
-                        "scrape": "webpage_scrape"
+                        "scrape": "webpage_scrape",
+                        "pdf": "process_online_document",
+                        "document": "process_online_document",
+                        "online": "process_online_document"
                     }
                     
                     if result["action"].lower() in tool_mapping:
@@ -1390,6 +1394,58 @@ def read_file_node(state: AgentState) -> Dict[str, Any]:
         "action_input": None   # Clear the action input
     }
 
+def process_online_document_node(state: AgentState) -> Dict[str, Any]:
+    """Node that processes online PDFs and images."""
+    print("Online Document Processing Tool Called...\n\n")
+    
+    # Extract tool arguments
+    action_input = state.get("action_input", {})
+    print(f"Online document processing action_input: {action_input}")
+    
+    # Extract URL and document type
+    url = ""
+    doc_type = "auto"  # Default to auto-detection
+    
+    if isinstance(action_input, dict):
+        url = action_input.get("url", "")
+        doc_type = action_input.get("doc_type", "auto")
+    elif isinstance(action_input, str):
+        url = action_input
+    
+    print(f"Processing online document: '{url}' (type: {doc_type})")
+    
+    # Safety check - don't run with empty URL
+    if not url:
+        result = "Error: No URL provided. Please provide a valid URL to process."
+    elif not url.startswith(("http://", "https://")):
+        result = f"Error: Invalid URL format: {url}. Please provide a valid URL starting with http:// or https://."
+    else:
+        # Call the online document processing function
+        try:
+            result = process_online_document(url, doc_type)
+        except Exception as e:
+            result = f"Error processing online document: {str(e)}\n\nThis could be due to:\n- The document is not accessible\n- Network connectivity issues\n- Unsupported document type\n- Rate limiting"
+    
+    print(f"Online document processing result length: {len(result)}")
+    
+    # Format the observation to continue the ReAct cycle
+    tool_message = AIMessage(
+        content=f"Observation: {result.strip()}"
+    )
+    
+    # Print the observation that will be sent back to the assistant
+    print("\n=== TOOL OBSERVATION ===")
+    content_preview = tool_message.content[:500] + "..." if len(tool_message.content) > 500 else tool_message.content
+    print(content_preview)
+    print("=== END OBSERVATION ===\n")
+    
+    # Return the updated state
+    return {
+        "messages": state["messages"] + [tool_message],
+        "current_tool": None,  # Reset the current tool
+        "action_input": None   # Clear the action input
+    }
+
 # Router function to direct to the correct tool
 def router(state: AgentState) -> str:
     """Route to the appropriate tool based on the current_tool field."""
@@ -1420,6 +1476,8 @@ def router(state: AgentState) -> str:
         return "process_image"
     elif tool == "read_file":
         return "read_file"
+    elif tool == "process_online_document":
+        return "process_online_document"
     else:
         return "end"
 
@@ -1441,6 +1499,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_node("transcribe_audio", transcribe_audio_node)
     builder.add_node("process_image", process_image_node)
     builder.add_node("read_file", read_file_node)
+    builder.add_node("process_online_document", process_online_document_node)
 
     # Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
@@ -1476,6 +1535,7 @@ def create_agent_graph() -> StateGraph:
             "transcribe_audio": "transcribe_audio",
             "process_image": "process_image",
             "read_file": "read_file",
+            "process_online_document": "process_online_document",
             "end": END
         }
     )
@@ -1492,6 +1552,7 @@ def create_agent_graph() -> StateGraph:
     builder.add_edge("transcribe_audio", "assistant")
     builder.add_edge("process_image", "assistant")
     builder.add_edge("read_file", "assistant")
+    builder.add_edge("process_online_document", "assistant")
     
     # Compile the graph
     return builder.compile()

@@ -1339,6 +1339,114 @@ def read_file(file_path: str, file_content: Optional[bytes] = None, line_start: 
                 print(f"Warning: Could not delete temporary file {temp_path}: {e}")
                 # Non-fatal error, don't propagate exception
 
+def process_online_document(url: str, doc_type: str = "auto") -> str:
+    """
+    Process and analyze online PDFs and images.
+    
+    Args:
+        url: URL of the document or image
+        doc_type: Type of document ("pdf", "image", or "auto" for automatic detection)
+        
+    Returns:
+        Analysis of the document content
+    """
+    try:
+        # Validate URL
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme or not parsed_url.netloc:
+            return f"Error: Invalid URL format: {url}. Please provide a valid URL with http:// or https:// prefix."
+        
+        # Block potentially dangerous URLs
+        blocked_domains = [
+            "localhost", "127.0.0.1", "0.0.0.0", 
+            "192.168.", "10.0.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
+            "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", 
+            "172.28.", "172.29.", "172.30.", "172.31."
+        ]
+        
+        if any(domain in parsed_url.netloc for domain in blocked_domains):
+            return f"Error: Access to internal/local URLs is blocked for security: {url}"
+        
+        print(f"Processing online document: {url}")
+        
+        # Set headers to mimic a browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/pdf,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+        
+        # Download the file
+        response = requests.get(url, headers=headers, stream=True, timeout=15)
+        response.raise_for_status()
+        
+        # Determine content type
+        content_type = response.headers.get('content-type', '').lower()
+        
+        # Create a temporary file to save the content
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file.write(response.content)
+            temp_path = temp_file.name
+        
+        try:
+            # Process based on content type or specified doc_type
+            if doc_type == "auto":
+                if "pdf" in content_type or url.lower().endswith('.pdf'):
+                    doc_type = "pdf"
+                elif any(img_type in content_type for img_type in ['jpeg', 'png', 'gif', 'bmp', 'webp']):
+                    doc_type = "image"
+                else:
+                    return f"Error: Unsupported content type: {content_type}"
+            
+            if doc_type == "pdf":
+                try:
+                    import PyPDF2
+                    with open(temp_path, 'rb') as file:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        text_content = ""
+                        for page in pdf_reader.pages:
+                            text_content += page.extract_text() + "\n"
+                        
+                        # Get metadata
+                        metadata = pdf_reader.metadata
+                        result = "PDF Analysis:\n\n"
+                        if metadata:
+                            result += "Metadata:\n"
+                            for key, value in metadata.items():
+                                if value:
+                                    result += f"- {key}: {value}\n"
+                            result += "\n"
+                        
+                        result += f"Number of pages: {len(pdf_reader.pages)}\n\n"
+                        result += "Content:\n"
+                        result += text_content[:8000]  # Limit content length
+                        if len(text_content) > 8000:
+                            result += "\n\n[Content truncated due to length...]"
+                        
+                        return result
+                except ImportError:
+                    return "Error: PyPDF2 library is required for PDF processing. Please install it using 'pip install PyPDF2'"
+                
+            elif doc_type == "image":
+                # Use the existing process_image function
+                return process_image(temp_path, url=url)
+            
+            else:
+                return f"Error: Unsupported document type: {doc_type}"
+                
+        finally:
+            # Clean up the temporary file
+            try:
+                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Warning: Could not delete temporary file {temp_path}: {e}")
+                
+    except requests.exceptions.RequestException as e:
+        return f"Error accessing URL {url}: {str(e)}"
+    except Exception as e:
+        return f"Error processing online document: {str(e)}"
+
 # Define the tools configuration
 tools_config = [
     {
@@ -1390,5 +1498,10 @@ tools_config = [
         "name": "read_file",
         "description": "Read and display the contents of a text file (.py, .txt, etc.). You can provide a file path or use a file attachment. Optionally specify line range to read a specific portion of the file.",
         "func": read_file
+    },
+    {
+        "name": "process_online_document",
+        "description": "Process and analyze online PDFs and images. Provide a URL and optionally specify the document type ('pdf', 'image', or 'auto').",
+        "func": process_online_document
     }
 ] 
