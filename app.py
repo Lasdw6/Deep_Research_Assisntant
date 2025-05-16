@@ -12,7 +12,7 @@ from flask import request
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 ALLOWED_FILE_EXTENSIONS = [".mp3", ".xlsx", ".py", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".md", ".json", ".csv", ".yml", ".yaml", ".html", ".css", ".js"]
 
-# Initialize rate limiter (10 queries per hour)
+# Initialize rate limiter (5 queries per hour)
 query_limiter = QueryRateLimiter(max_queries_per_hour=5)
 
 # --- Basic Agent Definition ---
@@ -28,7 +28,7 @@ class BasicAgent:
         return answer
 
 # --- Chat Interface Functions ---
-def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
+def chat_with_agent(question: str, file_uploads, history: list, request: gr.Request) -> tuple:
     """
     Handle chat interaction with TurboNerd agent, now with file upload support.
     """
@@ -36,8 +36,9 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         return history, "", "Remaining queries this hour: 5/5"
     
     try:
-        # Get client IP for rate limiting
-        ip_address = request.remote_addr if request else "127.0.0.1"
+        # Get client IP for rate limiting using Gradio's request object
+        ip_address = request.client_ip if request else "127.0.0.1"
+        print(f"Request from IP: {ip_address}")
         
         # Check rate limit
         if not query_limiter.is_allowed(ip_address):
@@ -324,13 +325,13 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
         
