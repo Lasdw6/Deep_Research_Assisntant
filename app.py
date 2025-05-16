@@ -42,7 +42,7 @@ def format_history_for_agent(history: list) -> str:
         formatted_history += f"{role.upper()}: {content}\n"
     return formatted_history
 
-def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
+def chat_with_agent(question: str, file_uploads, history: list, request: gr.Request) -> tuple:
     """
     Handle chat interaction with TurboNerd agent, now with file upload support.
     """
@@ -50,8 +50,8 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         return history, "", "Remaining queries this hour: 5/5"
     
     try:
-        # Use a session-based identifier for rate limiting and history
-        session_id = str(id(history))  # Use the history object's ID as a unique session identifier
+        # Get session ID from Gradio request
+        session_id = request.session_hash if request else str(id(history))
         print(f"Using session ID: {session_id}")
         
         # Initialize or get session history
@@ -371,13 +371,13 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
             
             question_input.submit(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
+                inputs=[question_input, file_upload, chatbot, gr.Request()],
                 outputs=[chatbot, question_input, remaining_queries]
             )
         
