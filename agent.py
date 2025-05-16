@@ -267,6 +267,8 @@ def prune_messages_for_llm(
 
 def assistant(state: AgentState) -> Dict[str, Any]:
     """Assistant node that processes messages and decides on next action."""
+    from langchain_core.messages import AIMessage  # Add import at the start of the function
+    
     print("Assistant Called...\n\n")
     
     full_current_history = state["messages"]
@@ -305,7 +307,6 @@ def assistant(state: AgentState) -> Dict[str, Any]:
             
             # Create a new response object if it's None
             if response is None:
-                from langchain_core.messages import AIMessage
                 response = AIMessage(content="")
                 print("Created new AIMessage object for None response")
             
@@ -363,7 +364,6 @@ def assistant(state: AgentState) -> Dict[str, Any]:
     except Exception as e:
         print(f"Error in LLM invocation: {str(e)}")
         # Create a fallback response in case of LLM errors
-        from langchain_core.messages import AIMessage
         response = AIMessage(content=(
             "Thought: I encountered an error in processing. Let me try to proceed with what I know.\n\n"
             "Final Answer: Unable to complete the task due to an error in processing."
