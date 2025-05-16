@@ -282,12 +282,13 @@ def run_python_code(code: str):
     except Exception as e:
         return f"Error executing code: {str(e)}"
 
-def scrape_webpage(url: str) -> str:
+def scrape_webpage(url: str, keywords: Optional[List[str]] = None) -> str:
     """
-    Safely scrape content from a specified URL.
+    Safely scrape content from a specified URL with intelligent content extraction.
     
     Args:
         url: The URL to scrape
+        keywords: Optional list of keywords to focus the content extraction
         
     Returns:
         Formatted webpage content as text
@@ -312,82 +313,34 @@ def scrape_webpage(url: str) -> str:
         
         print(f"Scraping URL: {url}")
         
-        # Rotate between different user agents to avoid being blocked
-        user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:94.0) Gecko/20100101 Firefox/94.0',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/96.0.4664.53 Mobile/15E148 Safari/604.1'
-        ]
-        
-        import random
-        selected_user_agent = random.choice(user_agents)
-        
-        # Set more comprehensive headers that mimic a real browser
+        # Set headers that mimic a real browser
         headers = {
-            'User-Agent': selected_user_agent,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Pragma': 'no-cache'
+            'Upgrade-Insecure-Requests': '1'
         }
         
-        # Set a reasonable timeout to avoid hanging
-        timeout = 15
+        # Set a reasonable timeout
+        timeout = 10
         
-        # Implement a simple retry mechanism
-        max_retries = 3
-        retry_delay = 2  # seconds
+        # Make the request
+        response = requests.get(url, headers=headers, timeout=timeout)
         
-        for attempt in range(max_retries):
-            try:
-                # Make the request
-                response = requests.get(url, headers=headers, timeout=timeout)
-                
-                # If successful, break out of retry loop
-                if response.status_code == 200:
-                    break
-                    
-                # If we got a 403 Forbidden error, try a different approach
-                if response.status_code == 403 and attempt < max_retries - 1:
-                    print(f"Received 403 Forbidden. Retrying with different headers (attempt {attempt + 1})...")
-                    # Change user agent for next attempt
-                    headers['User-Agent'] = random.choice(user_agents)
-                    # Add a referrer from a major site to appear more legitimate
-                    headers['Referer'] = 'https://www.google.com/'
-                    import time
-                    time.sleep(retry_delay)
-                    continue
-                    
-            except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
-                if attempt < max_retries - 1:
-                    print(f"Request failed: {e}. Retrying (attempt {attempt + 1})...")
-                    import time
-                    time.sleep(retry_delay)
-                    continue
-                else:
-                    raise
-                    
         # Check if request was successful
         if response.status_code != 200:
             if response.status_code == 403:
-                return f"Error: Access Forbidden (403). The website is actively blocking scrapers or requires authentication. Try using a different search method like Tavily search instead."
+                return f"Error: Access Forbidden (403). The website is actively blocking scrapers."
             return f"Error: Failed to fetch the webpage. Status code: {response.status_code}"
         
         # Use BeautifulSoup to parse the HTML
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Remove script and style elements that are not relevant to content
-        for script_or_style in soup(["script", "style", "iframe", "footer", "nav"]):
-            script_or_style.decompose()
+        # Remove unwanted elements
+        for element in soup(['script', 'style', 'iframe', 'footer', 'nav', 'header', 'aside', 'form', 'noscript', 'meta', 'link']):
+            element.decompose()
         
         # Get the page title
         title = soup.title.string if soup.title else "No title found"
@@ -396,26 +349,81 @@ def scrape_webpage(url: str) -> str:
         # First try to find main content areas
         main_content = soup.find('main') or soup.find('article') or soup.find(id='content') or soup.find(class_='content')
         
-        # If no main content area is found, use the entire body
+        # If no main content area is found, use the body
         if not main_content:
             main_content = soup.body
         
-        # Convert to plain text
+        # Convert to plain text with specific settings
         h = html2text.HTML2Text()
-        h.ignore_links = False
+        h.ignore_links = True  # Ignore links to reduce noise
         h.ignore_images = True
         h.ignore_tables = False
         h.unicode_snob = True
+        h.body_width = 0  # Don't wrap text
         
         if main_content:
             text_content = h.handle(str(main_content))
         else:
             text_content = h.handle(response.text)
         
-        # Limit content length to avoid overwhelming the model
-        max_content_length = 99999999999
-        if len(text_content) > max_content_length:
-            text_content = text_content[:max_content_length] + "\n\n[Content truncated due to length...]"
+        # Clean up the text content
+        # Remove extra whitespace and normalize newlines
+        text_content = ' '.join(text_content.split())
+        
+        # Extract relevant content based on keywords if provided
+        if keywords:
+            # Split content into paragraphs (using double newlines as paragraph separators)
+            paragraphs = [p.strip() for p in text_content.split('\n\n') if p.strip()]
+            
+            # Score each paragraph based on keyword presence
+            scored_paragraphs = []
+            for paragraph in paragraphs:
+                score = 0
+                for keyword in keywords:
+                    if keyword.lower() in paragraph.lower():
+                        score += 1
+                if score > 0:
+                    scored_paragraphs.append((paragraph, score))
+            
+            # Sort paragraphs by score and take top ones
+            scored_paragraphs.sort(key=lambda x: x[1], reverse=True)
+            
+            # Take paragraphs with highest scores, but limit total content
+            selected_paragraphs = []
+            total_length = 0
+            max_content_length = 2000
+            
+            for paragraph, score in scored_paragraphs:
+                if total_length + len(paragraph) <= max_content_length:
+                    selected_paragraphs.append(paragraph)
+                    total_length += len(paragraph)
+                else:
+                    # If we can't fit the whole paragraph, try to find a good breaking point
+                    remaining_length = max_content_length - total_length
+                    if remaining_length > 100:  # Only break if we have enough space for meaningful content
+                        break_point = paragraph[:remaining_length].rfind('.')
+                        if break_point > remaining_length * 0.8:  # If we can find a good sentence break
+                            selected_paragraphs.append(paragraph[:break_point + 1])
+                            total_length += break_point + 1
+                    break
+            
+            # Join the selected paragraphs
+            text_content = '\n\n'.join(selected_paragraphs)
+            
+            if total_length >= max_content_length:
+                text_content += "\n\n[Content truncated due to length...]"
+        
+        # If no keywords provided or no matches found, use the original content with length limit
+        else:
+            max_content_length = 2000
+            if len(text_content) > max_content_length:
+                # Try to find a good breaking point
+                break_point = text_content[:max_content_length].rfind('.')
+                if break_point > max_content_length * 0.8:  # If we can find a good sentence break
+                    text_content = text_content[:break_point + 1]
+                else:
+                    text_content = text_content[:max_content_length]
+                text_content += "\n\n[Content truncated due to length. Try using a different search method like Tavily search instead or use other key words or phrases.]"
         
         # Format the response
         result = f"Title: {title}\nURL: {url}\n\n{text_content}"
