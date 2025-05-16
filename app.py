@@ -435,4 +435,4 @@ if __name__ == "__main__":
     print("-"*(60 + len(" App Starting ")) + "\n")
 
     print("Launching Gradio Interface for TurboNerd Agent...")
-    demo.launch(debug=True, share=False, show_api=False)
+    demo.launch(debug=True, share=False, show_api=False, favicon_path="static/favicon.ico")
