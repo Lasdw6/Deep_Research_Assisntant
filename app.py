@@ -66,9 +66,36 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         else:
             response = agent(question)
         
+        # Format the response to show thought process
+        formatted_response = ""
+        if "Thought:" in response:
+            # Split the response into sections
+            sections = response.split("\n\n")
+            for section in sections:
+                if section.startswith("Thought:"):
+                    formatted_response += f"🤔 {section[7:].strip()}\n\n"
+                elif section.startswith("Action:"):
+                    # Extract the tool being used
+                    if "action" in section and "action_input" in section:
+                        try:
+                            import json
+                            action_json = json.loads(section.split("```json")[1].split("```")[0].strip())
+                            tool_name = action_json.get("action", "").replace("_", " ").title()
+                            formatted_response += f"🛠️ Using {tool_name}...\n\n"
+                        except:
+                            formatted_response += f"🛠️ {section[7:].strip()}\n\n"
+                elif section.startswith("Observation:"):
+                    formatted_response += f"📝 {section[11:].strip()}\n\n"
+                elif section.startswith("Final Answer:"):
+                    formatted_response += f"✨ {section[12:].strip()}\n\n"
+                else:
+                    formatted_response += f"{section}\n\n"
+        else:
+            formatted_response = response
+        
         # Add question and response to history in the correct format
         history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": response})
+        history.append({"role": "assistant", "content": formatted_response})
         
         return history, ""
     except Exception as e:
