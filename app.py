@@ -277,62 +277,42 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             with gr.Row():
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(
-                        label="Conversation", 
                         height=600,
-                        type="messages",
-                        elem_id="chatbot",
                         show_copy_button=True,
-                        show_label=True,
-                        container=True,
                         bubble_full_width=False,
-                        rtl=False,
-                        show_share_button=False,
-                        show_retry_button=True,
-                        show_clear_button=True,
-                        avatar_images=(None, None),
-                        likeable=False,
-                        layout="panel",
                         min_width=600,
-                        max_width=1200,
-                        scale=1,
-                        autoscroll=True,
-                        elem_classes=["chatbot-container"]
+                        max_width=1200
                     )
                     with gr.Row():
-                        question_input = gr.Textbox(
-                            label="Ask a question",
-                            placeholder="Type your question here...",
-                            lines=9,
-                            max_lines=9,
-                            container=True,
-                            scale=3
-                        )
-                        file_upload = gr.File(
-                            label="Upload Files",
-                            file_types=ALLOWED_FILE_EXTENSIONS,
-                            file_count="multiple",
-                            scale=1
-                        )
+                        with gr.Column(scale=4):
+                            msg = gr.Textbox(
+                                placeholder="Ask me anything...",
+                                show_label=False,
+                                container=False
+                            )
+                        with gr.Column(scale=1):
+                            submit_btn = gr.Button("Send", variant="primary")
                     with gr.Row():
-                        submit_btn = gr.Button("Send", variant="primary")
-                        clear_btn = gr.Button("Clear Chat", variant="secondary")
+                        clear_btn = gr.Button("Clear Chat")
+                        retry_btn = gr.Button("Retry Last Response")
+                        undo_btn = gr.Button("Undo Last Exchange")
             
             # Chat interface event handlers
             submit_btn.click(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
+                inputs=[msg, chatbot],
+                outputs=[chatbot, msg]
             )
             
-            question_input.submit(
+            msg.submit(
                 fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
+                inputs=[msg, chatbot],
+                outputs=[chatbot, msg]
             )
             
             clear_btn.click(
                 fn=clear_chat,
-                outputs=[chatbot, question_input, file_upload]
+                outputs=[chatbot, msg]
             )
         
         # Tab 2: Evaluation Interface
