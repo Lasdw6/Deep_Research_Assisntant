@@ -277,26 +277,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             with gr.Row():
                 with gr.Column(scale=4):
                     chatbot = gr.Chatbot(
-                        label="Conversation", 
-                        height=600,
-                        type="messages",
-                        elem_id="chatbot",
-                        show_copy_button=True,
-                        show_label=True,
-                        container=True,
-                        bubble_full_width=False,
-                        rtl=False,
-                        show_share_button=False,
-                        show_retry_button=True,
-                        show_clear_button=True,
-                        avatar_images=(None, None),
-                        likeable=False,
-                        layout="panel",
-                        min_width=600,
-                        max_width=1200,
-                        scale=1,
-                        autoscroll=True,
-                        elem_classes=["chatbot-container"]
+                        height=600
                     )
                     with gr.Row():
                         question_input = gr.Textbox(
