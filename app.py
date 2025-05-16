@@ -47,7 +47,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
     Handle chat interaction with TurboNerd agent, now with file upload support.
     """
     if not question.strip() and not file_uploads:
-        return history, "", "Remaining queries this hour: 5/5"
+        return history, ""
     
     try:
         # Use the history object's ID as a session identifier
@@ -64,17 +64,6 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Add the question to both histories immediately
         history.append({"role": "user", "content": question})
         session_histories[session_id].append({"role": "user", "content": question})
-        
-        # Check rate limit
-        # if not query_limiter.is_allowed(session_id):
-        #     remaining_time = query_limiter.get_time_until_reset(session_id)
-        #     error_message = (
-        #         f"Rate limit exceeded. You can make {query_limiter.max_queries} queries per hour. Think of my bank account🙏. "
-        #         f"Please wait {int(remaining_time)} seconds before trying again."
-        #     )
-        #     history.append({"role": "assistant", "content": error_message})
-        #     session_histories[session_id].append({"role": "assistant", "content": error_message})
-        #     return history, "", f"Remaining queries this hour: 0/{query_limiter.max_queries}"
         
         # Initialize agent
         agent = TurboNerd()
@@ -101,7 +90,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
             
             if file_info:
                 if question.strip():
-                    question = question + file_info
+                    question = f"{question}\n{file_info}"
                 else:
                     question = f"Please analyze these files: {file_info}"
         
@@ -149,14 +138,11 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         else:
             formatted_response = response
         
-        # Add remaining queries info
-        # remaining_queries = query_limiter.get_remaining_queries(session_id)
-        
         # Add response to both histories
         history.append({"role": "assistant", "content": formatted_response})
         session_histories[session_id].append({"role": "assistant", "content": formatted_response})
         
-        return history, "", "Remaining queries this hour: 5/5"
+        return history, ""
     except RecursionError as e:
         error_message = (
             "I apologize, but I've reached my thinking limit while trying to answer your question. "
@@ -167,7 +153,7 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         history.append({"role": "assistant", "content": error_message})
         if session_id in session_histories:
             session_histories[session_id].append({"role": "assistant", "content": error_message})
-        return history, "", "Remaining queries this hour: 5/5"
+        return history, ""
     except Exception as e:
         error_str = str(e).lower()
         if "credit" in error_str or "quota" in error_str or "limit" in error_str or "exceeded" in error_str or "OPENAI_API_KEY" in error_str or "TAVILY_API_KEY" in error_str:
@@ -180,11 +166,11 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         history.append({"role": "assistant", "content": error_message})
         if session_id in session_histories:
             session_histories[session_id].append({"role": "assistant", "content": error_message})
-        return history, "", "Remaining queries this hour: 5/5"
+        return history, ""
 
 def clear_chat():
     """Clear the chat history."""
-    return [], "", None, "Remaining queries this hour: 5/5"
+    return [], ""
 
 # --- Evaluation Functions ---
 def run_and_submit_all(profile: gr.OAuthProfile | None):
