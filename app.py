@@ -86,20 +86,12 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                     
                     # Check if file extension is allowed
                     if file_ext in ALLOWED_FILE_EXTENSIONS:
-                        # Create a local copy of the file
-                        local_path = os.path.join("uploads", file_name)
-                        os.makedirs("uploads", exist_ok=True)
-                        
-                        # Copy the file to local storage
-                        with open(file_path, "rb") as src, open(local_path, "wb") as dst:
-                            dst.write(src.read())
-                        
                         # Read file content and encode as base64
-                        with open(local_path, "rb") as f:
+                        with open(file_path, "rb") as f:
                             file_content = f.read()
                             file_content_b64 = base64.b64encode(file_content).decode("utf-8")
                             attachments[file_name] = file_content_b64
-                            file_info += f"\nUploaded file: {local_path}"
+                            file_info += f"\nUploaded file: {file_name}"
             
             if file_info:
                 if question.strip():
