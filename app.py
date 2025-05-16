@@ -289,7 +289,7 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
 
             **Code & Data Processing:**
             - "I have a Python script and an Excel file with data. Analyze the code's functionality and suggest improvements based on the data patterns."
-            - "This code contains a bug. Debug it, explain the issue, and propose a solution."
+            - "This code contains a bug. Debug it ."
 
             The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
             """)
