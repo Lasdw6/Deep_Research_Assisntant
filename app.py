@@ -321,7 +321,8 @@ with gr.Blocks(title="TurboNerd Agent🤓") as demo:
             gr.Markdown("""
             ## Chat with TurboNerd 🤓
             Ask any question and get an answer from TurboNerd. The agent can search the web, Wikipedia, analyze images, process audio, and more!
-            \nNote: For best results, ask specific questions that have factual answers. Some websites may be inaccessible due to web scraping restrictions.
+            
+            Note: For best results, ask specific questions that have factual answers andd have the question be properly formatted as given below. Some websites, like reddit, may be inaccessible due to web scraping restrictions.
             ### Example Questions:
 
             **Research & Analysis:**
