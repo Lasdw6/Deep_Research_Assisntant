@@ -71,7 +71,7 @@ arxiv_search: Search ArXiv for publications,news and other resources. Optionally
 webpage_scrape: Scrape a specific webpage, args: {"url": {"type": "string"}}
 supabase_operation: Perform database operations, args: {"operation_type": {"type": "string"}, "table": {"type": "string"}, "data": {"type": "object", "optional": true}, "filters": {"type": "object", "optional": true}}
 excel_to_text: Convert Excel to Markdown table with attachment, args: {"excel_path": {"type": "string"}, "file_content": {"type": "string"}, "sheet_name": {"type": "string", "optional": true}}
-process_youtube_video: Extract and analyze YouTube video content by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
+process_youtube_video: Process a YouTube video by extracting its transcript/captions and basic metadata by providing the video URL. Returns video metadata and transcript, args: {"url": {"type": "string"}, "summarize": {"type": "boolean", "optional": true}}
 transcribe_audio: Transcribe audio files using OpenAI Whisper, args: {"audio_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "language": {"type": "string", "optional": true}}
 process_image: Process and analyze image files, args: {"image_path": {"type": "string"}, "image_url": {"type": "string", "optional": true}, "file_content": {"type": "string", "optional": true}, "analyze_content": {"type": "boolean", "optional": true}}
 read_file: Read and display the contents of a text file, args: {"file_path": {"type": "string"}, "file_content": {"type": "string", "optional": true}, "line_start": {"type": "integer", "optional": true}, "line_end": {"type": "integer", "optional": true}}
@@ -134,10 +134,11 @@ NEVER fake or simulate tool output yourself. If you are unable to make progreess
 
 ... (this Thought/Action/Observation cycle can repeat as needed) ...
 Thought: I now know the final answer
-Final Answer: YOUR FINAL ANSWER should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, don't use comma to write your number neither use units such as $ or percent sign unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities), and write the digits in plain text unless specified otherwise. If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string. For one word answers, start with the word with a capital letter.
-Make sure to follow any formatting instructions given by the user. 
+Final Answer: Make sure to follow any formatting instructions given by the user. Do not give too long of an answer.
 If you are unable arrive at a final answer, summarize the information you have gathered such as links and any relevent information and provide a final answer. Also state a reason for you not being able to answer the question.
 Now begin! Reminder to ALWAYS use the exact characters `Final Answer:` when you provide a definitive answer. DO NOT USE TAVILY SEARCH FOR CLARIFICATION OR BASIC QUESTIONS THAT YOU CAN ANSWER USING YOUR INTERNAL KNOWLEDGE"""
+
+#YOUR FINAL ANSWER should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, don't use comma to write your number neither use units such as $ or percent sign unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities), and write the digits in plain text unless specified otherwise. If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string. For one word answers, start with the word with a capital letter.
 
 # Generate the chat interface, including the tools
 llm = ChatOpenAI(
