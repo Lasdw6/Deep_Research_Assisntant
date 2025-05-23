@@ -4,13 +4,25 @@ import requests
 import inspect
 import pandas as pd
 import base64
-from agent import TurboNerd
+from agent import ScholarAI
 from rate_limiter import QueryRateLimiter
 from flask import request
+import PyPDF2
+import fitz  # PyMuPDF
+import time
+from typing import List, Tuple, Optional
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+
+# Load custom CSS
+with open("static/custom.css", "r", encoding="utf-8") as f:
+    custom_css = f.read()
 
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 ALLOWED_FILE_EXTENSIONS = [".mp3", ".xlsx", ".py", ".png", ".jpg", ".jpeg", ".gif", ".txt", ".md", ".json", ".csv", ".yml", ".yaml", ".html", ".css", ".js"]
+MAX_FILE_SIZE_MB = 10
+CHUNK_SIZE = 1000  # characters per chunk for text processing
 
 # Initialize rate limiter (5 queries per hour)
 query_limiter = QueryRateLimiter(max_queries_per_hour=5)
@@ -18,17 +30,10 @@ query_limiter = QueryRateLimiter(max_queries_per_hour=5)
 # Dictionary to store session-specific conversation histories
 session_histories = {}
 
-# --- Basic Agent Definition ---
-class BasicAgent:
-    def __init__(self):
-        print("BasicAgent initialized.")
-        self.agent = TurboNerd()
-        
-    def __call__(self, question: str) -> str:
-        print(f"Agent received question (first 50 chars): {question[:50]}...")
-        answer = self.agent(question)
-        print(f"Agent returning answer: {answer[:50]}...")
-        return answer
+# --- Model Settings ---
+DEFAULT_TEMPERATURE = 0.1
+DEFAULT_MAX_TOKENS = 2000
+DEFAULT_MODEL = "gpt-4o-mini"
 
 # --- Chat Interface Functions ---
 def format_history_for_agent(history: list) -> str:
@@ -47,11 +52,90 @@ def format_history_for_agent(history: list) -> str:
     
     return "\n".join(formatted_history)
 
-def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
+def validate_inputs(question: str, file_uploads: List[gr.File]) -> Tuple[bool, str]:
+    """Validate user inputs before processing."""
+    if not question.strip() and (not file_uploads or len(file_uploads) == 0):
+        return False, "Please enter a question or upload a file."
+    
+    if len(question) > 2000:
+        return False, "Question is too long. Please keep it under 2000 characters."
+    
+    if file_uploads:
+        for file in file_uploads:
+            if file is None:
+                continue
+                
+            file_path = file.name
+            if not os.path.exists(file_path):
+                return False, f"File {os.path.basename(file_path)} not found."
+                
+            file_size = os.path.getsize(file_path) / (1024 * 1024)  # Convert to MB
+            
+            if file_size > MAX_FILE_SIZE_MB:
+                return False, f"File {os.path.basename(file_path)} is too large. Maximum size is {MAX_FILE_SIZE_MB}MB."
+            
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext not in ALLOWED_FILE_EXTENSIONS:
+                return False, f"File {os.path.basename(file_path)} has an unsupported format. Allowed formats: {', '.join(ALLOWED_FILE_EXTENSIONS)}"
+    
+    return True, ""
+
+def process_document(file_path: str, progress=gr.Progress()) -> List[str]:
+    """Process document and return chunks with progress bar."""
+    file_ext = os.path.splitext(file_path)[1].lower()
+    chunks = []
+    
+    try:
+        if file_ext == '.pdf':
+            # Process PDF
+            doc = fitz.open(file_path)
+            total_pages = len(doc)
+            
+            for page_num in progress.tqdm(range(total_pages), desc="Processing PDF pages"):
+                page = doc[page_num]
+                text = page.get_text()
+                # Split text into chunks
+                for i in range(0, len(text), CHUNK_SIZE):
+                    chunk = text[i:i + CHUNK_SIZE]
+                    if chunk.strip():
+                        chunks.append(f"[Page {page_num + 1}] {chunk}")
+                time.sleep(0.1)  # Small delay to show progress
+                
+        elif file_ext in ['.txt', '.md', '.json', '.csv', '.yml', '.yaml', '.html', '.css', '.js', '.py']:
+            # Process text files
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+                total_chunks = len(text) // CHUNK_SIZE + (1 if len(text) % CHUNK_SIZE else 0)
+                
+                for i in progress.tqdm(range(0, len(text), CHUNK_SIZE), desc="Processing text chunks"):
+                    chunk = text[i:i + CHUNK_SIZE]
+                    if chunk.strip():
+                        chunks.append(chunk)
+                    time.sleep(0.1)  # Small delay to show progress
+                    
+        elif file_ext in ['.xlsx']:
+            # Process Excel files
+            df = pd.read_excel(file_path)
+            total_rows = len(df)
+            
+            for i in progress.tqdm(range(0, total_rows, CHUNK_SIZE), desc="Processing Excel rows"):
+                chunk_df = df.iloc[i:i + CHUNK_SIZE]
+                chunks.append(chunk_df.to_string())
+                time.sleep(0.1)  # Small delay to show progress
+                
+        return chunks
+        
+    except Exception as e:
+        return [f"Error processing file: {str(e)}"]
+
+def chat_with_agent(question: str, file_uploads, history: list, temperature: float, max_tokens: int, model: str, progress=gr.Progress()) -> tuple:
     """
-    Handle chat interaction with TurboNerd agent, now with file upload support.
+    Handle chat interaction with ScholarAI agent, now with file upload support and input validation.
     """
-    if not question.strip() and not file_uploads:
+    # Validate inputs
+    is_valid, error_message = validate_inputs(question, file_uploads)
+    if not is_valid:
+        history.append({"role": "assistant", "content": f"❌ {error_message}"})
         return history, ""
     
     try:
@@ -62,7 +146,6 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Initialize or get session history
         if session_id not in session_histories:
             session_histories[session_id] = []
-            # If we have existing history, add it to the session history
             if history:
                 session_histories[session_id].extend(history)
         
@@ -70,8 +153,30 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         history.append({"role": "user", "content": question})
         session_histories[session_id].append({"role": "user", "content": question})
         
-        # Initialize agent
-        agent = TurboNerd()
+        try:
+            # Initialize agent with current settings
+            agent = ScholarAI(
+                max_iterations=35,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                model=model
+            )
+            print("Agent initialized successfully with Temperature: ", temperature, "Max Tokens: ", max_tokens, "Model: ", model)
+        except ValueError as e:
+            error_message = str(e)
+            if "API key not found" in error_message:
+                error_message = "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
+            elif "Invalid OpenAI API key" in error_message:
+                error_message = "Invalid OpenAI API key. Please check your API key and try again."
+            elif "rate limit" in error_message.lower() or "quota" in error_message.lower():
+                error_message = "OpenAI API rate limit exceeded or quota reached. Please try again later."
+            else:
+                error_message = f"Error initializing AI agent: {error_message}"
+            
+            history.append({"role": "assistant", "content": error_message})
+            if session_id in session_histories:
+                session_histories[session_id].append({"role": "assistant", "content": error_message})
+            return history, ""
         
         # Process uploaded files if any
         attachments = {}
@@ -82,16 +187,26 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
                 if file is not None:
                     file_path = file.name
                     file_name = os.path.basename(file_path)
-                    file_ext = os.path.splitext(file_name)[1].lower()
                     
-                    # Check if file extension is allowed
-                    if file_ext in ALLOWED_FILE_EXTENSIONS:
-                        # Read file content and encode as base64
+                    # Process document and get chunks
+                    chunks = process_document(file_path, progress)
+                    
+                    if len(chunks) > 1:
+                        file_info += f"\nProcessing {file_name} in {len(chunks)} chunks..."
+                        
+                        # Process each chunk
+                        for i, chunk in enumerate(chunks, 1):
+                            chunk_name = f"{file_name}_chunk_{i}"
+                            chunk_content = base64.b64encode(chunk.encode('utf-8')).decode('utf-8')
+                            attachments[chunk_name] = chunk_content
+                            file_info += f"\nProcessed chunk {i}/{len(chunks)}"
+                    else:
+                        # Single chunk or error
                         with open(file_path, "rb") as f:
                             file_content = f.read()
-                            file_content_b64 = base64.b64encode(file_content).decode("utf-8")
+                            file_content_b64 = base64.b64encode(file_content).decode('utf-8')
                             attachments[file_name] = file_content_b64
-                            file_info += f"\nUploaded file: {file_path}"
+                            file_info += f"\nUploaded file: {file_name}"
             
             if file_info:
                 if question.strip():
@@ -101,7 +216,6 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         
         # Format the session-specific conversation history
         conversation_history = format_history_for_agent(session_histories[session_id])
-        print(f"Current conversation history:\n{conversation_history}")  # Debug print
         
         # Prepare the full context for the agent
         full_context = f"Question: {question}\n\nConversation History:\n{conversation_history}"
@@ -115,25 +229,23 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         # Format the response to show thought process
         formatted_response = ""
         if "Thought:" in response:
-            # Split the response into sections
             sections = response.split("\n\n")
             for section in sections:
                 if section.startswith("Thought:"):
-                    formatted_response += f"🤔 {section[7:].strip()}\n\n"
+                    formatted_response += f"{section[7:].strip()}\n\n"
                 elif section.startswith("Action:"):
-                    # Extract the tool being used
                     if "action" in section and "action_input" in section:
                         try:
                             import json
                             action_json = json.loads(section.split("```json")[1].split("```")[0].strip())
                             tool_name = action_json.get("action", "").replace("_", " ").title()
-                            formatted_response += f"🛠️ Using {tool_name}...\n\n"
+                            formatted_response += f"Using {tool_name}...\n\n"
                         except:
-                            formatted_response += f"🛠️ {section[7:].strip()}\n\n"
+                            formatted_response += f"{section[7:].strip()}\n\n"
                 elif section.startswith("Observation:"):
-                    formatted_response += f"📝 {section[11:].strip()}\n\n"
+                    formatted_response += f"{section[11:].strip()}\n\n"
                 elif section.startswith("Final Answer:"):
-                    formatted_response += f"✨ {section[12:].strip()}\n\n"
+                    formatted_response += f"{section[12:].strip()}\n\n"
                 else:
                     formatted_response += f"{section}\n\n"
         else:
@@ -144,23 +256,15 @@ def chat_with_agent(question: str, file_uploads, history: list) -> tuple:
         session_histories[session_id].append({"role": "assistant", "content": formatted_response})
         
         return history, ""
-    except RecursionError as e:
-        error_message = (
-            "I apologize, but I've reached my thinking limit while trying to answer your question. "
-            "This usually happens when the question requires too many steps to solve and therefore too much money"
-            "Could you please try breaking down your question into smaller, more specific parts? "
-            "For example, instead of asking about multiple things at once, try asking about one aspect at a time."
-        )
-        history.append({"role": "assistant", "content": error_message})
-        if session_id in session_histories:
-            session_histories[session_id].append({"role": "assistant", "content": error_message})
-        return history, ""
+        
     except Exception as e:
         error_str = str(e).lower()
-        if "credit" in error_str or "quota" in error_str or "limit" in error_str or "exceeded" in error_str or "OPENAI_API_KEY" in error_str or "TAVILY_API_KEY" in error_str:
-            error_message = (
-                "It seems I've run out of API credits. "
-                "Please try again later or tomorrow when the credits reset. ")
+        if "credit" in error_str or "quota" in error_str or "limit" in error_str or "exceeded" in error_str:
+            error_message = "It seems I've run out of API credits. Please try again later or tomorrow when the credits reset."
+        elif "invalid_api_key" in error_str or "incorrect_api_key" in error_str:
+            error_message = "Invalid OpenAI API key. Please check your API key and try again."
+        elif "api_key" in error_str:
+            error_message = "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
         else:
             error_message = f"Error: {str(e)}"
         
@@ -176,7 +280,7 @@ def clear_chat():
 # --- Evaluation Functions ---
 def run_and_submit_all(profile: gr.OAuthProfile | None):
     """
-    Fetches all questions, runs the BasicAgent on them, submits all answers,
+    Fetches all questions, runs the ScholarAI on them, submits all answers,
     and displays the results.
     """
     # --- Determine HF Space Runtime URL and Repo URL ---
@@ -193,9 +297,14 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
     questions_url = f"{api_url}/questions"
     submit_url = f"{api_url}/submit"
 
-    # 1. Instantiate Agent ( modify this part to create your agent)
+    # 1. Instantiate Agent
     try:
-        agent = BasicAgent()
+        agent = ScholarAI(
+            max_iterations=35,
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=DEFAULT_MAX_TOKENS,
+            model=DEFAULT_MODEL
+        )
     except Exception as e:
         print(f"Error instantiating agent: {e}")
         return f"Error initializing agent: {e}", None
@@ -312,133 +421,143 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
         return status_message, results_df
 
 # --- Build Gradio Interface using Blocks with Tabs ---
-with gr.Blocks(title="TurboNerd Agent🤓") as demo:
-    gr.Markdown("# TurboNerd 🤓- The Deep Research Agent \n ### Made by Vividh Mahajan - @Lasdw on HuggingFace")
+with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
+    with gr.Row(elem_classes="header-bar"):
+        with gr.Column(scale=3):
+            gr.Markdown("# <span style='font-size: 1.8em'>ScholarAI</span>", elem_classes="title")
+            gr.Markdown("""
+            <div class="badges">
+                <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status">
+                <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
+                <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
+                <img src="https://img.shields.io/badge/python-3.11-blue" alt="Python">
+                <img src="https://img.shields.io/badge/gradio-5.29.1-orange" alt="Gradio">
+            </div>
+            """, elem_classes="badges-container")
+        with gr.Column(scale=1):
+            gr.Markdown("<span style='font-size: 0.9em'>by [Vividh Mahajan](https://huggingface.co/Lasdw)</span>", elem_classes="author")
     
-    with gr.Tabs():
-        # Tab 1: Chat Interface
-        with gr.TabItem("🤓", id="chat"):
-            gr.Markdown("""
-            ## Chat with TurboNerd 🤓
-            Ask any question and get an answer from TurboNerd. The agent can search the web, Wikipedia, analyze images, process audio, and more!
-            
-            Note: For best results, ask specific questions that have factual answers andd have the question be properly formatted as given below. Some websites, like reddit, may be inaccessible due to web scraping restrictions.
-            ### Example Questions:
+    gr.Markdown("""
+    ## ScholarAI helps you find answers by searching the web, analyzing images, processing audio, and more. 
+    
+    ### Tip: Ask specific, factual questions for best results. Some websites may be restricted.
+    """)
+    
+    with gr.Accordion("Example Questions", open=False, elem_classes="example-questions"):
+        gr.Markdown("""
+        ### Example Questions:
 
-            **Research & Analysis:**
-            - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Cross-reference this information with their Wikipedia page and any recent news articles."
-            - "Analyze this image of a mathematical equation, and find an academic papers that use this equation."
+        **Research & Analysis:**
+        - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Tell me thier current age and where they are from."
+        - "Analyze this image of a mathematical equation, and find an academic papers that use this equation."
 
-            **Multi-Modal Analysis:**
-            - "I have an interview recording and a transcript. Compare the audio transcription with the provided transcript, identify any discrepancies."
-            - "This image shows a historical document. Find me the historical events from that era."
+        **Multi-Modal Analysis:**
+        - "I have an interview recording and a transcript. Compare the audio transcription with the provided transcript, identify any discrepancies."
+        - "This image shows a historical document. Find me the historical events from that era."
 
-            **Code & Data Processing:**
-            - "I have a Python script and an Excel file with data. Analyze the code's functionality and suggest improvements based on the data patterns."
-            - "This code contains a bug. Debug it ."
+        **Code & Data Processing:**
+        - "I have a Python script and an Excel file with data. Analyze the code's functionality and suggest improvements based on the data patterns."
+        - "This code contains a bug. Debug it."
 
-            The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
-            """)
-            
-            gr.Markdown("""
-            ### Disclaimer
-            This tool is designed for educational and research purposes only. It is not intended for malicious use.
-            """)
-            
+        The agent can handle multiple file uploads and combine information from various sources to provide comprehensive answers. Try asking complex questions that require multiple tools working together!
+        """)
+    
+    with gr.Row():
+        # Left panel - Chat interface
+        with gr.Column(scale=2):
+            chatbot = gr.Chatbot(
+                height=250,
+                type="messages"
+            )
             with gr.Row():
-                with gr.Column(scale=4):
-                    chatbot = gr.Chatbot(
-                        height=300,
-                        type="messages"  # Use the new messages format
-                    )
-                    # remaining_queries = gr.Textbox(
-                    #     label="Remaining Queries",
-                    #     value="Remaining queries this hour: 5/5",
-                    #     interactive=False
-                    # )
+                question_input = gr.Textbox(
+                    label="Ask a question",
+                    placeholder="e.g. Analyze this interview transcript and find discrepancies",
+                    lines=5,
+                    max_lines=5,
+                    container=True,
+                    scale=2,
+                    min_width=500
+                )
+                with gr.Column(scale=1):
                     with gr.Row():
-                        question_input = gr.Textbox(
-                            label="Ask a question",
-                            placeholder="Type your question here...",
-                            lines=9,
-                            max_lines=9,
-                            container=True,
-                            scale=3
-                        )
-                        file_upload = gr.File(
-                            label="Upload Files",
-                            file_types=ALLOWED_FILE_EXTENSIONS,
-                            file_count="multiple",
-                            scale=1
-                        )
-                    with gr.Row():
-                        submit_btn = gr.Button("Send", variant="primary")
-            
-            # Chat interface event handlers
-            submit_btn.click(
-                fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
-            )
-            
-            question_input.submit(
-                fn=chat_with_agent,
-                inputs=[question_input, file_upload, chatbot],
-                outputs=[chatbot, question_input]
-            )
+                        with gr.Column(scale=2):
+                            file_upload = gr.File(
+                                label="Upload Files (.png, .txt, .mp3, .xlsx, .py)",
+                                file_types=ALLOWED_FILE_EXTENSIONS,
+                                file_count="multiple",
+                                height=175,
+                                min_width=200
+                            )
+            with gr.Row():
+                submit_btn = gr.Button("Start Research", variant="primary")
         
-        # Tab 2: Evaluation Interface
-        with gr.TabItem(" ", id="evaluation"):
-            gr.Markdown("""
-            # You found a secret page 🤫
-            ## Agent Evaluation Runner for the AI Agents course on HF :P
-            ## See my ranking (@Lasdw) on the course [here](https://huggingface.co/spaces/agents-course/Students_leaderboard)
-            
-            ## Below is the original README.md for the space
-                        
-            **Instructions:**
-            
-            1. Log in to your Hugging Face account using the button below.
-            2. Click 'Run Evaluation & Submit All Answers' to fetch questions, run your agent, submit answers, and see the score.
-            
-            ---
-            **Disclaimers:**
-            Once clicking on the "submit" button, it can take quite some time (this is the time for the agent to go through all the questions).
-            This space provides a basic setup and is intentionally sub-optimal to encourage you to develop your own, more robust solution.
-            """)
-            
-            gr.LoginButton()
-            
-            run_button = gr.Button("Run Evaluation & Submit All Answers", variant="primary")
-            
-            status_output = gr.Textbox(label="Run Status / Submission Result", lines=5, interactive=False)
-            results_table = gr.DataFrame(label="Questions and Agent Answers", wrap=True)
-            
-            run_button.click(
-                fn=run_and_submit_all,
-                outputs=[status_output, results_table]
-            )
+        # Right panel - Controls
+        with gr.Column(scale=1):
+            gr.Markdown("# Model Settings")
+            with gr.Group():
+                temperature = gr.Slider(
+                    minimum=0.0,
+                    maximum=1.0,
+                    value=DEFAULT_TEMPERATURE,
+                    step=0.1,
+                    label="Temperature",
+                    info="Higher values make the output more random, lower values make it more deterministic"
+                )
+                max_tokens = gr.Slider(
+                    minimum=100,
+                    maximum=4000,
+                    value=DEFAULT_MAX_TOKENS,
+                    step=100,
+                    label="Max Tokens",
+                    info="Maximum length of the response"
+                )
+                model = gr.Dropdown(
+                    choices=["gpt-4o-mini", "gpt-3.5-turbo"],
+                    value=DEFAULT_MODEL,
+                    label="Model",
+                    info="The language model to use"
+                )
+    
+    # Footer with disclaimer
+    gr.Markdown("""
+    <div class="footer">
+    This tool is designed for educational and research purposes only. It is not intended for malicious use.
+    </div>
+    """)
+    
+    # Chat interface event handlers
+    submit_btn.click(
+        fn=chat_with_agent,
+        inputs=[question_input, file_upload, chatbot, temperature, max_tokens, model],
+        outputs=[chatbot, question_input]
+    )
+    
+    question_input.submit(
+        fn=chat_with_agent,
+        inputs=[question_input, file_upload, chatbot, temperature, max_tokens, model],
+        outputs=[chatbot, question_input]
+    )
 
 if __name__ == "__main__":
     print("\n" + "-"*30 + " App Starting " + "-"*30)
-    # Check for SPACE_HOST and SPACE_ID at startup for information
     space_host_startup = os.getenv("SPACE_HOST")
-    space_id_startup = os.getenv("SPACE_ID") # Get SPACE_ID at startup
+    space_id_startup = os.getenv("SPACE_ID")
 
     if space_host_startup:
-        print(f"✅ SPACE_HOST found: {space_host_startup}")
+        print(f"SPACE_HOST found: {space_host_startup}")
         print(f"   Runtime URL should be: https://{space_host_startup}.hf.space")
     else:
-        print("ℹ️  SPACE_HOST environment variable not found (running locally?).")
+        print("SPACE_HOST environment variable not found (running locally?).")
 
-    if space_id_startup: # Print repo URLs if SPACE_ID is found
-        print(f"✅ SPACE_ID found: {space_id_startup}")
+    if space_id_startup:
+        print(f"SPACE_ID found: {space_id_startup}")
         print(f"   Repo URL: https://huggingface.co/spaces/{space_id_startup}")
         print(f"   Repo Tree URL: https://huggingface.co/spaces/{space_id_startup}/tree/main")
     else:
-        print("ℹ️  SPACE_ID environment variable not found (running locally?). Repo URL cannot be determined.")
+        print("SPACE_ID environment variable not found (running locally?). Repo URL cannot be determined.")
 
     print("-"*(60 + len(" App Starting ")) + "\n")
 
-    print("Launching Gradio Interface for TurboNerd Agent...")
+    print("Launching Gradio Interface for ScholarAI Agent...")
     demo.launch(debug=True, share=False, show_api=False, favicon_path="static/favicon.ico", enable_monitoring=True)

@@ -485,7 +485,7 @@ def wikipedia_search(query: str, num_results: int = 3) -> str:
             formatted_results += f"{i}. {title}\n"
             formatted_results += f"   URL: {source}\n"
             formatted_results += f"   {content}\n\n"
-        
+            print("formatted_results:", formatted_results[:100])
         return formatted_results
         
     except Exception as e:
@@ -550,7 +550,7 @@ def tavily_search(query: str, search_depth: str = "basic") -> str:
         # Otherwise, just convert to string representation
         else:
             formatted_results += str(results)
-            
+        print("formatted_results:", formatted_results[:100])
         return formatted_results
         
     except Exception as e:
@@ -617,7 +617,9 @@ def arxiv_search(query: str, max_results: int = 5) -> str:
             if len(abstract) > 300:
                 abstract = abstract[:300] + "..."
             formatted_results += f"   Abstract: {abstract}\n\n"
-            
+        
+        print("formatted_results:", formatted_results[:100])
+
         return formatted_results
         
     except Exception as e:

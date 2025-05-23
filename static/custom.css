@@ -1,0 +1,478 @@
+    :root {
+         --primary-purple: #8a3db8;
+         --dark-purple: #6a2c9e;
+         --light-purple: #b366ff;
+         --black: #1a1a1a;
+         --dark-gray: #2d2d2d;
+         --light-gray: #404040;
+         --white: #ffffff;
+     }
+     
+     /* Header styling */
+     h1 {
+         font-size: 2.5em !important;
+         margin-bottom: 0.5em !important;
+     }
+     
+     h1 span {
+         color: var(--light-purple) !important;
+         font-weight: bold !important;
+     }
+     
+     /* Global styles */
+     .gradio-container {
+         background-color: var(--black) !important;
+         color: var(--white) !important;
+         padding-bottom: 60px !important;
+     }
+     
+     /* Chat interface */
+     .chatbot {
+         background-color: var(--dark-gray) !important;
+         border-radius: 8px !important;
+         max-width: 520px !important; /* Limit width of the whole chat area */
+         margin-left: auto !important;
+         margin-right: auto !important;
+     }
+     
+     /* Message bubbles */
+     .message, .user-message, .assistant-message {
+         border: none !important;
+         border-radius: 10px !important;
+         box-shadow: none !important;
+         background: var(--light-purple) !important;
+         color: var(--white) !important;
+         margin: 8px 0 !important;
+         padding: 12px 18px !important;
+         max-width: 85% !important; /* Limit width of each message bubble */
+         word-break: break-word !important;
+     }
+     
+     .user-message {
+         background-color: var(--light-purple) !important;
+         color: var(--white) !important;
+     }
+     
+     .assistant-message {
+         background-color: var(--light-gray) !important;
+         color: var(--white) !important;
+     }
+     
+     /* Input area */
+     .textbox {
+         background-color: var(--dark-gray) !important;
+         color: var(--white) !important;
+     }
+     
+     .textbox:focus {
+         border-color: var(--light-purple) !important;
+         box-shadow: 0 0 5px var(--light-purple) !important;
+     }
+     
+     /* Buttons */
+     button {
+         background-color: var(--light-purple) !important;
+         color: var(--white) !important;
+         border: none !important;
+         border-radius: 4px !important;
+         transition: background-color 0.3s ease !important;
+     }
+     
+     button:hover {
+         background-color: var(--primary-purple) !important;
+     }
+     
+     /* Slider styling */
+     input[type="range"],
+     .gr-form,
+     .gr-box,
+     .gr-input {
+         -webkit-appearance: none !important;
+         background: var(--light-purple) !important;
+         height: 4px !important;
+         border-radius: 2px !important;
+     }
+     
+     input[type="range"]::-webkit-slider-thumb,
+     .gr-form::-webkit-slider-thumb,
+     .gr-box::-webkit-slider-thumb,
+     .gr-input::-webkit-slider-thumb {
+         -webkit-appearance: none !important;
+         width: 16px !important;
+         height: 16px !important;
+         background: var(--light-purple) !important;
+         border: 2px solid var(--white) !important;
+         border-radius: 50% !important;
+         cursor: pointer !important;
+     }
+     
+     input[type="range"]::-moz-range-thumb,
+     .gr-form::-moz-range-thumb,
+     .gr-box::-moz-range-thumb,
+     .gr-input::-moz-range-thumb {
+         width: 16px !important;
+         height: 16px !important;
+         background: var(--light-purple) !important;
+         border: 2px solid var(--white) !important;
+         border-radius: 50% !important;
+         cursor: pointer !important;
+     }
+     
+     input[type="range"]::-webkit-slider-runnable-track,
+     .gr-form::-webkit-slider-runnable-track,
+     .gr-box::-webkit-slider-runnable-track,
+     .gr-input::-webkit-slider-runnable-track {
+         background: var(--light-purple) !important;
+         height: 4px !important;
+         border-radius: 2px !important;
+     }
+     
+     input[type="range"]::-moz-range-track,
+     .gr-form::-moz-range-track,
+     .gr-box::-moz-range-track,
+     .gr-input::-moz-range-track {
+         background: var(--light-purple) !important;
+         height: 4px !important;
+         border-radius: 2px !important;
+     }
+     
+     /* Dropdown styling */
+     select, .dropdown {
+         background-color: var(--dark-gray) !important;
+         color: var(--white) !important;
+         border: 1px solid var(--light-purple) !important;
+         border-radius: 4px !important;
+     }
+     
+     select:hover, .dropdown:hover {
+         border-color: var(--light-purple) !important;
+     }
+     
+     select:focus, .dropdown:focus {
+         border-color: var(--light-purple) !important;
+         box-shadow: 0 0 5px var(--light-purple) !important;
+     }
+     
+     /* Markdown content */
+     .markdown {
+         color: var(--white) !important;
+     }
+     
+     .markdown h1, .markdown h2, .markdown h3 {
+         color: var(--light-purple) !important;
+     }
+     
+     /* File upload area */
+     .upload-area {
+         background-color: var(--dark-gray) !important;
+         border: 2px dashed var(--light-purple) !important;
+         border-radius: 8px !important;
+     }
+     
+     .upload-area:hover {
+         border-color: var(--light-purple) !important;
+     }
+     
+     /* Scrollbars */
+     ::-webkit-scrollbar {
+         width: 8px;
+         height: 8px;
+     }
+     
+     ::-webkit-scrollbar-track {
+         background: var(--dark-gray);
+     }
+     
+     ::-webkit-scrollbar-thumb {
+         background: var(--light-purple);
+         border-radius: 4px;
+     }
+     
+     ::-webkit-scrollbar-thumb:hover {
+         background: var(--primary-purple);
+     }
+     
+     /* Footer styling */
+     .footer {
+         position: fixed;
+         bottom: 0;
+         left: 0;
+         right: 0;
+         background-color: var(--black) !important;
+         color: var(--white) !important;
+         padding: 10px 20px !important;
+         text-align: center !important;
+         border-top: 1px solid var(--light-purple) !important;
+         font-size: 1em !important;
+         z-index: 1000 !important;
+     }
+     
+     /* Accordion styling */
+     .accordion {
+         background-color: var(--dark-gray) !important;
+         border: 1px solid var(--light-purple) !important;
+         border-radius: 8px !important;
+         margin: 10px 0 !important;
+     }
+     
+     .accordion-header {
+         background-color: var(--dark-gray) !important;
+         color: var(--white) !important;
+         padding: 12px !important;
+         cursor: pointer !important;
+         transition: background-color 0.3s ease !important;
+     }
+     
+     .accordion-header:hover {
+         background-color: var(--light-gray) !important;
+     }
+     
+     .accordion-content {
+         background-color: var(--dark-gray) !important;
+         color: var(--white) !important;
+         padding: 15px !important;
+         border-top: 1px solid var(--light-purple) !important;
+     }
+     
+     /* Accordion icon */
+     .accordion-header::after {
+         color: var(--light-purple) !important;
+     }
+     
+     /* Model Settings styling */
+     .slider,
+     .gr-slider,
+     .gr-form {
+         background-color: var(--black) !important;
+     }
+     
+     .slider .thumb,
+     .gr-slider .thumb,
+     .gr-form .thumb {
+         background-color: var(--light-purple) !important;
+         border: 2px solid var(--white) !important;
+     }
+     
+     .slider .track,
+     .gr-slider .track,
+     .gr-form .track {
+         background-color: var(--dark-purple) !important;
+     }
+     
+     .slider .track-fill,
+     .gr-slider .track-fill,
+     .gr-form .track-fill {
+         background-color: var(--light-purple) !important;
+     }
+     
+     .slider .label,
+     .gr-slider .label,
+     .gr-form .label {
+         color: var(--white) !important;
+     }
+     
+     .slider .info,
+     .gr-slider .info,
+     .gr-form .info,
+     .gr-box .info,
+     .gr-input .info {
+         color: var(--black) !important;
+         opacity: 1 !important;
+     }
+     
+     /* Additional Gradio-specific overrides */
+     .gr-box[data-testid="slider"] .track {
+         background-color: var(--dark-purple) !important;
+     }
+     
+     .gr-box[data-testid="slider"] .info {
+         color: var(--black) !important;
+         opacity: 1 !important;
+     }
+     
+     .gr-box[data-testid="slider"] .track-fill {
+         background-color: var(--light-purple) !important;
+     }
+     
+     /* Box below model settings */
+     .gr-box,
+     .gr-box[data-testid="box"],
+     .gr-box[data-testid="group"] {
+         background-color: var(--light-purple) !important;
+         border-radius: 8px !important;
+         padding: 15px !important;
+         margin-top: 10px !important;
+     }
+     
+     .gr-box *,
+     .gr-box[data-testid="box"] *,
+     .gr-box[data-testid="group"] * {
+         color: var(--white) !important;
+     }
+     
+     .gr-box .markdown,
+     .gr-box[data-testid="box"] .markdown,
+     .gr-box[data-testid="group"] .markdown {
+         color: var(--white) !important;
+         background-color: transparent !important;
+     }
+     
+     .gr-box .markdown p,
+     .gr-box[data-testid="box"] .markdown p,
+     .gr-box[data-testid="group"] .markdown p {
+         color: var(--white) !important;
+         margin: 0 !important;
+         background-color: transparent !important;
+     }
+     
+     /* Override any conflicting styles */
+     .gr-box[data-testid="box"] .column,
+     .gr-box[data-testid="group"] .column {
+         background-color: transparent !important;
+     }
+     
+     .gr-box[data-testid="box"] .column .markdown,
+     .gr-box[data-testid="group"] .column .markdown {
+         background-color: transparent !important;
+     }
+     
+     /* Info text styling */
+     .info {
+         color: var(--light-purple) !important;
+         font-size: 0.9em !important;
+         font-style: italic !important;
+     }
+     
+     /* Side panel styling */
+     .column {
+         background-color: var(--black) !important;
+     }
+     
+     .column .markdown {
+         background-color: var(--light-purple) !important;
+         border: none !important;
+     }
+     
+     .column .markdown p {
+         background-color: var(--light-purple) !important;
+         border: none !important;
+     }
+     
+     .header-bar {
+         padding: 5px 10px !important;
+         margin-bottom: 10px !important;
+         background: transparent !important;
+     }
+     
+     .title {
+         text-align: left !important;
+         margin: 0 !important;
+         padding: 0 !important;
+     }
+     
+     .author {
+         text-align: right !important;
+         margin: 0 !important;
+         padding: 0 !important;
+         line-height: 2.5em !important;
+     }
+     
+     /* Example Questions styling */
+     .example-questions {
+         margin: 20px 0 !important;
+         border: 2px solid var(--light-purple) !important;
+         border-radius: 8px !important;
+         background: linear-gradient(45deg, var(--primary-purple), var(--light-purple)) !important;
+         transition: all 0.3s ease !important;
+     }
+     
+     .example-questions:hover {
+         transform: translateY(-2px) !important;
+         box-shadow: 0 4px 15px rgba(156, 77, 204, 0.3) !important;
+     }
+     
+     .example-questions .accordion-header {
+         background: transparent !important;
+         color: var(--white) !important;
+         font-size: 1.2em !important;
+         font-weight: bold !important;
+         padding: 15px 20px !important;
+         cursor: pointer !important;
+         display: flex !important;
+         align-items: center !important;
+         gap: 10px !important;
+     }
+     
+     .example-questions .accordion-header::after {
+         content: "Click to expand" !important;
+         font-size: 0.8em !important;
+         opacity: 0.8 !important;
+         margin-left: auto !important;
+     }
+     
+     .example-questions .accordion-content {
+         background-color: var(--dark-gray) !important;
+         padding: 20px !important;
+         border-top: 1px solid var(--light-purple) !important;
+     }
+     
+     .example-questions .markdown {
+         color: var(--white) !important;
+     }
+     
+     .example-questions .markdown h3 {
+         color: var(--light-purple) !important;
+         margin-bottom: 15px !important;
+     }
+     
+     .example-questions .markdown strong {
+         color: var(--light-purple) !important;
+     }
+     
+     /* Badges styling */
+     .badges-container {
+         margin-top: 5px !important;
+     }
+     
+     .badges {
+         display: flex !important;
+         gap: 8px !important;
+         flex-wrap: wrap !important;
+         align-items: center !important;
+     }
+     
+     .badges img {
+         height: 20px !important;
+         transition: transform 0.2s ease !important;
+     }
+     
+     .badges img:hover {
+         transform: translateY(-2px) !important;
+     }
+     
+     /* Remove all blockquote and code block vertical bars and backgrounds */
+     .markdown blockquote {
+         border-left: none !important;
+         background: none !important;
+         margin: 0 !important;
+         padding: 0 0 0 0 !important;
+         color: var(--white) !important;
+         box-shadow: none !important;
+     }
+     .markdown pre,
+     .markdown code {
+         border: none !important;
+         background: var(--dark-gray) !important;
+         box-shadow: none !important;
+         margin: 0 !important;
+         color: var(--white) !important;
+     }
+     
+     /* Force remove any left border, box-shadow, or background from all markdown descendants */
+     .markdown * {
+         border-left: none !important;
+         box-shadow: none !important;
+         background: none !important;
+         color: var(--white) !important;
+     }
+    

@@ -57,7 +57,7 @@ load_dotenv()
 #webpage_scrape: Scrape content from a specific webpage URL when Tavily Search and Wikipedia Search do not return a result. Provide a valid URL to extract information from a particular web page.
 #Give preference to using Tavily Search and Wikipedia Search before using web_search or webpage_scrape. When Web_search does not return a result, use Tavily Search.
 
-SYSTEM_PROMPT = """ You are a genuis deep reseach assistant called TurboNerd, made by Vividh Mahajan. Answer the following questions as best you can. If it is a basic question, answer it using your internal knowledge. If it is a complex question that requires facts, use the tools to answer it DO NOT rely on your internal knowledge unless the tools fail to provide a result:
+SYSTEM_PROMPT = """ You are a genuis deep reseach assistant called ScholarAI, made by Vividh Mahajan. Answer the following questions as best you can. If it is a basic question, answer it using your internal knowledge. If it is a complex question that requires facts, use the tools to answer it DO NOT rely on your internal knowledge unless the tools fail to provide a result:
 For simple questions, you can use your internal knowledge and answer directly. If you do not understand the question, ask for clarification after trying to answer the question yourself.
 
 The way you use the tools is by specifying a json blob. These are the only tools you can use:
@@ -1320,16 +1320,47 @@ def create_agent_graph() -> StateGraph:
     return builder.compile()
 
 # Main agent class that integrates with your existing app.py
-class TurboNerd:
-    def __init__(self, max_iterations=35, apify_api_token=None):
+class ScholarAI:
+    def __init__(self, max_iterations=35, temperature=0.1, max_tokens=2000, model="gpt-4o-mini", apify_api_token=None):
+        # Check for OpenAI API key
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+            
+        try:
+            # Test the API key with a simple request
+            test_llm = ChatOpenAI(
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            test_llm.invoke("test")  # This will fail if API key is invalid
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid_api_key" in error_msg or "incorrect_api_key" in error_msg:
+                raise ValueError("Invalid OpenAI API key. Please check your API key and try again.")
+            elif "rate_limit" in error_msg or "quota" in error_msg:
+                raise ValueError("OpenAI API rate limit exceeded or quota reached. Please try again later.")
+            else:
+                raise ValueError(f"Error initializing OpenAI client: {str(e)}")
+        
         self.graph = create_agent_graph()
         self.tools = tools_config
         self.max_iterations = max_iterations  # Maximum iterations for the graph
+        
+        # Update the global llm instance with the specified parameters
+        global llm
+        llm = ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
         
         # Set Apify API token if provided
         if apify_api_token:
             os.environ["APIFY_API_TOKEN"] = apify_api_token
             print("Apify API token set successfully")
+        
+        print(f"ScholarAI initialized with model={model}, temperature={temperature}, max_tokens={max_tokens}")
     
     def __call__(self, question: str, attachments: dict = None) -> str:
         """
@@ -1392,7 +1423,7 @@ class TurboNerd:
 
 # Example usage:
 if __name__ == "__main__":
-    agent = TurboNerd(max_iterations=25)
+    agent = ScholarAI(max_iterations=25)
     response = agent("""The attached Excel file contains the sales of menu items for a local fast-food chain. What were the total sales that the chain made from food (not including drinks)? Express your answer in USD with two decimal places. TEMPP\excel.xlsx """)
     print("\nFinal Response:")
     print(response)
