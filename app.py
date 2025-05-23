@@ -445,8 +445,6 @@ with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
     
     with gr.Accordion("Example Questions", open=False, elem_classes="example-questions"):
         gr.Markdown("""
-        ### Example Questions:
-
         **Research & Analysis:**
         - "Find the first name of the only Malko Competition recipient from the 20th Century (after 1977) whose nationality on record is a country that no longer exists. Tell me thier current age and where they are from."
         - "Analyze this image of a mathematical equation, and find an academic papers that use this equation."
