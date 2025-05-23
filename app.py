@@ -500,7 +500,7 @@ with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
                     value=DEFAULT_TEMPERATURE,
                     step=0.1,
                     label="Temperature",
-                    info="Higher values increase randomness, lower values increase determinism"
+                    info="Higher increase creativity, lower increase factual accuracy"
                 )
                 max_tokens = gr.Slider(
                     minimum=100,
