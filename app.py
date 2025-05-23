@@ -424,7 +424,7 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
 with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
     with gr.Row(elem_classes="header-bar"):
         with gr.Column(scale=3):
-            gr.Markdown("# <span style='font-size: 1.8em'>ScholarAI</span>", elem_classes="title")
+            gr.Markdown("# <span style='font-size: 2.5em'>ScholarAI</span>", elem_classes="title")
             gr.Markdown("""
             <div class="badges">
                 <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status">
@@ -502,7 +502,7 @@ with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
                     value=DEFAULT_TEMPERATURE,
                     step=0.1,
                     label="Temperature",
-                    info="Higher values make the output more random, lower values make it more deterministic"
+                    info="Higher values increase randomness, lower values increase determinism"
                 )
                 max_tokens = gr.Slider(
                     minimum=100,
