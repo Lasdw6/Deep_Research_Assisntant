@@ -426,14 +426,16 @@ with gr.Blocks(title="ScholarAI Agent", css=custom_css) as demo:
         with gr.Column(scale=3):
             gr.Markdown("# <span style='font-size: 2.5em'>ScholarAI</span>", elem_classes="title")
             gr.Markdown("""
-            <div class="badges">
-                <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status">
-                <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
-                <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
-                <img src="https://img.shields.io/badge/python-3.11-blue" alt="Python">
-                <img src="https://img.shields.io/badge/gradio-5.29.1-orange" alt="Gradio">
+            <div class="badges-container">
+                <div class="badges">
+                    <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status">
+                    <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License">
+                    <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
+                    <img src="https://img.shields.io/badge/python-3.11-blue" alt="Python">
+                    <img src="https://img.shields.io/badge/gradio-5.29.1-orange" alt="Gradio">
+                </div>
             </div>
-            """, elem_classes="badges-container")
+            """)
         with gr.Column(scale=1):
             gr.Markdown("<span style='font-size: 0.9em'>by [Vividh Mahajan](https://huggingface.co/Lasdw)</span>", elem_classes="author")
     
