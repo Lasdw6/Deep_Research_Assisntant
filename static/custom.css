@@ -431,23 +431,31 @@
      
      /* Badges styling */
      .badges-container {
-         margin-top: 5px !important;
+         margin: 10px 0 !important;
+         display: flex !important;
+         justify-content: flex-start !important;
      }
      
      .badges {
          display: flex !important;
-         gap: 8px !important;
+         gap: 10px !important;
          flex-wrap: wrap !important;
+         justify-content: flex-start !important;
          align-items: center !important;
      }
      
      .badges img {
          height: 20px !important;
-         transition: transform 0.2s ease !important;
+         width: auto !important;
+         display: inline-block !important;
+         margin: 0 5px !important;
+         opacity: 1 !important;
+         filter: brightness(1) !important;
      }
      
      .badges img:hover {
-         transform: translateY(-2px) !important;
+         transform: scale(1.1) !important;
+         transition: transform 0.2s ease !important;
      }
      
      /* Remove all blockquote and code block vertical bars and backgrounds */
