@@ -560,4 +560,4 @@ if __name__ == "__main__":
     print("-"*(60 + len(" App Starting ")) + "\n")
 
     print("Launching Gradio Interface for ScholarAI Agent...")
-    demo.launch(debug=True, share=False, show_api=False, favicon_path="static/favicon.ico", enable_monitoring=True)
+    demo.launch(debug=True, share=False, show_api=False, favicon_path="static/favicon.ico", enable_monitoring=True, ssr_mode=False)
