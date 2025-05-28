@@ -1,5 +1,5 @@
 
-[# ScholarAI 🎓] (https://huggingface.co/spaces/Lasdw/Deep_Research_Agent)
+# [ScholarAI 🎓](https://huggingface.co/spaces/Lasdw/Deep_Research_Agent)
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://huggingface.co/spaces/Lasdw/ScholarAI)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
