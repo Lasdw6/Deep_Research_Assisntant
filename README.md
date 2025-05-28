@@ -46,16 +46,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Created by [Vividh Mahajan](https://huggingface.co/Lasdw)
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
-
----
-title: ScholarAI
-emoji: 🎓
-colorFrom: yellow
-colorTo: red
-sdk: gradio
-sdk_version: 5.29.1
-app_file: app.py
-pinned: true
-hf_oauth: true
-hf_oauth_expiration_minutes: 480
----
