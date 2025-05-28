@@ -1,15 +1,3 @@
----
-title: ScholarAI
-emoji: 🎓
-colorFrom: yellow
-colorTo: red
-sdk: gradio
-sdk_version: 5.29.1
-app_file: app.py
-pinned: true
-hf_oauth: true
-hf_oauth_expiration_minutes: 480
----
 
 # ScholarAI 🎓
 
@@ -18,7 +6,6 @@ hf_oauth_expiration_minutes: 480
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://huggingface.co/spaces/Lasdw/ScholarAI)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![Gradio](https://img.shields.io/badge/gradio-5.29.1-orange)](https://gradio.app/)
-[![Stars](https://img.shields.io/github/stars/Lasdw/ScholarAI?style=social)](https://github.com/Lasdw/ScholarAI)
 
 An AI-powered research assistant that helps you find answers by searching the web, analyzing images, processing audio, and more.
 
@@ -59,3 +46,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Created by [Vividh Mahajan](https://huggingface.co/Lasdw)
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+
+---
+title: ScholarAI
+emoji: 🎓
+colorFrom: yellow
+colorTo: red
+sdk: gradio
+sdk_version: 5.29.1
+app_file: app.py
+pinned: true
+hf_oauth: true
+hf_oauth_expiration_minutes: 480
+---
